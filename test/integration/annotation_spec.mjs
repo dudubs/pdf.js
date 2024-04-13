@@ -58,6 +58,35 @@ describe("Annotation highlight", () => {
       );
     });
   });
+
+  describe("Check that widget annotations are in front of highlight ones", () => {
+    let pages;
+
+    beforeAll(async () => {
+      pages = await loadAndWait("bug1883609.pdf", "[data-annotation-id='23R']");
+    });
+
+    afterAll(async () => {
+      await closePages(pages);
+    });
+
+    it("must click on widget annotations", async () => {
+      await Promise.all(
+        pages.map(async ([browserName, page]) => {
+          for (const i of [23, 22, 14]) {
+            await page.click(`[data-annotation-id='${i}R']`);
+            await page.waitForFunction(
+              id =>
+                document.activeElement ===
+                document.querySelector(`#pdfjs_internal_id_${id}R`),
+              {},
+              i
+            );
+          }
+        })
+      );
+    });
+  });
 });
 
 describe("Checkbox annotation", () => {
@@ -141,6 +170,7 @@ describe("Checkbox annotation", () => {
           );
           for (const selector of selectors) {
             await page.click(selector);
+            // eslint-disable-next-line no-restricted-syntax
             await waitForTimeout(10);
           }
           for (const selector of selectors) {
@@ -200,6 +230,7 @@ describe("Text widget", () => {
         pages.map(async ([browserName, page]) => {
           await page.type(getSelector("22R"), "a");
           await page.keyboard.press("Tab");
+          // eslint-disable-next-line no-restricted-syntax
           await waitForTimeout(10);
 
           const text = await page.$eval(getSelector("22R"), el => el.value);
@@ -486,11 +517,13 @@ describe("ResetForm action", () => {
               `document.querySelector("[data-annotation-id='25R']").hidden === false`
             );
             await page.click("#editorFreeText");
+            // eslint-disable-next-line no-restricted-syntax
             await waitForTimeout(10);
             await page.waitForFunction(
               `document.querySelector("[data-annotation-id='25R']").hidden === true`
             );
             await page.click("#editorFreeText");
+            // eslint-disable-next-line no-restricted-syntax
             await waitForTimeout(10);
             await page.waitForFunction(
               `document.querySelector("[data-annotation-id='25R']").hidden === false`
@@ -554,6 +587,7 @@ describe("ResetForm action", () => {
             expect(hidden).withContext(`In ${browserName}`).toEqual(true);
             await page.focus("[data-annotation-id='20R']");
             await page.keyboard.press("Enter");
+            // eslint-disable-next-line no-restricted-syntax
             await waitForTimeout(10);
             hidden = await page.$eval(
               "[data-annotation-id='21R']",
@@ -562,6 +596,7 @@ describe("ResetForm action", () => {
             expect(hidden).withContext(`In ${browserName}`).toEqual(false);
 
             await page.keyboard.press("Enter");
+            // eslint-disable-next-line no-restricted-syntax
             await waitForTimeout(10);
             hidden = await page.$eval(
               "[data-annotation-id='21R']",
@@ -570,6 +605,7 @@ describe("ResetForm action", () => {
             expect(hidden).withContext(`In ${browserName}`).toEqual(true);
 
             await page.keyboard.press("Enter");
+            // eslint-disable-next-line no-restricted-syntax
             await waitForTimeout(10);
             hidden = await page.$eval(
               "[data-annotation-id='21R']",
@@ -578,6 +614,7 @@ describe("ResetForm action", () => {
             expect(hidden).withContext(`In ${browserName}`).toEqual(false);
 
             await page.keyboard.press("Escape");
+            // eslint-disable-next-line no-restricted-syntax
             await waitForTimeout(10);
             hidden = await page.$eval(
               "[data-annotation-id='21R']",

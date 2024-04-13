@@ -16,11 +16,12 @@
 import {
   AnnotationEditorParamsType,
   AnnotationEditorType,
+  shadow,
   Util,
 } from "../../shared/util.js";
+import { bindEvents, KeyboardManager } from "./tools.js";
 import { FreeOutliner, Outliner } from "./outliner.js";
 import { AnnotationEditor } from "./editor.js";
-import { bindEvents } from "./tools.js";
 import { ColorPicker } from "./color_picker.js";
 import { noContextMenu } from "../display_utils.js";
 
@@ -28,6 +29,10 @@ import { noContextMenu } from "../display_utils.js";
  * Basic draw editor in order to generate an Highlight annotation.
  */
 class HighlightEditor extends AnnotationEditor {
+  #anchorNode = null;
+
+  #anchorOffset = 0;
+
   #boxes;
 
   #clipPathId = null;
@@ -35,6 +40,10 @@ class HighlightEditor extends AnnotationEditor {
   #colorPicker = null;
 
   #focusOutlines = null;
+
+  #focusNode = null;
+
+  #focusOffset = 0;
 
   #highlightDiv = null;
 
@@ -44,13 +53,19 @@ class HighlightEditor extends AnnotationEditor {
 
   #isFreeHighlight = false;
 
+  #boundKeydown = this.#keydown.bind(this);
+
   #lastPoint = null;
 
   #opacity;
 
   #outlineId = null;
 
+  #text = "";
+
   #thickness;
+
+  #methodOfCreation = "";
 
   static _defaultColor = null;
 
@@ -70,12 +85,28 @@ class HighlightEditor extends AnnotationEditor {
 
   static _freeHighlightClipId = "";
 
+  static get _keyboardManager() {
+    const proto = HighlightEditor.prototype;
+    return shadow(
+      this,
+      "_keyboardManager",
+      new KeyboardManager([
+        [["ArrowLeft", "mac+ArrowLeft"], proto._moveCaret, { args: [0] }],
+        [["ArrowRight", "mac+ArrowRight"], proto._moveCaret, { args: [1] }],
+        [["ArrowUp", "mac+ArrowUp"], proto._moveCaret, { args: [2] }],
+        [["ArrowDown", "mac+ArrowDown"], proto._moveCaret, { args: [3] }],
+      ])
+    );
+  }
+
   constructor(params) {
     super({ ...params, name: "highlightEditor" });
     this.color = params.color || HighlightEditor._defaultColor;
     this.#thickness = params.thickness || HighlightEditor._defaultThickness;
     this.#opacity = params.opacity || HighlightEditor._defaultOpacity;
     this.#boxes = params.boxes || null;
+    this.#methodOfCreation = params.methodOfCreation || "";
+    this.#text = params.text || "";
     this._isDraggable = false;
 
     if (params.highlightId > -1) {
@@ -83,10 +114,38 @@ class HighlightEditor extends AnnotationEditor {
       this.#createFreeOutlines(params);
       this.#addToDrawLayer();
     } else {
+      this.#anchorNode = params.anchorNode;
+      this.#anchorOffset = params.anchorOffset;
+      this.#focusNode = params.focusNode;
+      this.#focusOffset = params.focusOffset;
       this.#createOutlines();
       this.#addToDrawLayer();
       this.rotate(this.rotation);
     }
+  }
+
+  /** @inheritdoc */
+  get telemetryInitialData() {
+    return {
+      action: "added",
+      type: this.#isFreeHighlight ? "free_highlight" : "highlight",
+      color: this._uiManager.highlightColorNames.get(this.color),
+      thickness: this.#thickness,
+      methodOfCreation: this.#methodOfCreation,
+    };
+  }
+
+  /** @inheritdoc */
+  get telemetryFinalData() {
+    return {
+      type: "highlight",
+      color: this._uiManager.highlightColorNames.get(this.color),
+    };
+  }
+
+  static computeTelemetryFinalData(data) {
+    // We want to know how many colors have been used.
+    return { numberOfColors: data.get("color").size };
   }
 
   #createOutlines() {
@@ -274,6 +333,14 @@ class HighlightEditor extends AnnotationEditor {
       overwriteIfSameType: true,
       keepUndo: true,
     });
+
+    this._reportTelemetry(
+      {
+        action: "color_changed",
+        color: this._uiManager.highlightColorNames.get(color),
+      },
+      /* mustWait = */ true
+    );
   }
 
   /**
@@ -295,6 +362,10 @@ class HighlightEditor extends AnnotationEditor {
       overwriteIfSameType: true,
       keepUndo: true,
     });
+    this._reportTelemetry(
+      { action: "thickness_changed", thickness },
+      /* mustWait = */ true
+    );
   }
 
   /** @inheritdoc */
@@ -347,8 +418,11 @@ class HighlightEditor extends AnnotationEditor {
 
   /** @inheritdoc */
   remove() {
-    super.remove();
     this.#cleanDrawLayer();
+    this._reportTelemetry({
+      action: "deleted",
+    });
+    super.remove();
   }
 
   /** @inheritdoc */
@@ -382,6 +456,7 @@ class HighlightEditor extends AnnotationEditor {
         !this.parent && this.div?.classList.contains("selectedEditor");
     }
     super.setParent(parent);
+    this.show(this._isVisible);
     if (mustBeSelected) {
       // We select it after the parent has been set.
       this.select();
@@ -486,11 +561,18 @@ class HighlightEditor extends AnnotationEditor {
     }
 
     const div = super.render();
+    if (this.#text) {
+      div.setAttribute("aria-label", this.#text);
+      div.setAttribute("role", "mark");
+    }
     if (this.#isFreeHighlight) {
       div.classList.add("free");
+    } else {
+      this.div.addEventListener("keydown", this.#boundKeydown);
     }
     const highlightDiv = (this.#highlightDiv = document.createElement("div"));
     div.append(highlightDiv);
+    highlightDiv.setAttribute("aria-hidden", "true");
     highlightDiv.className = "internal";
     highlightDiv.style.clipPath = this.#clipPathId;
     const [parentWidth, parentHeight] = this.parentDimensions;
@@ -510,9 +592,42 @@ class HighlightEditor extends AnnotationEditor {
     this.parent.drawLayer.removeClass(this.#outlineId, "hovered");
   }
 
+  #keydown(event) {
+    HighlightEditor._keyboardManager.exec(this, event);
+  }
+
+  _moveCaret(direction) {
+    this.parent.unselect(this);
+    switch (direction) {
+      case 0 /* left */:
+      case 2 /* up */:
+        this.#setCaret(/* start = */ true);
+        break;
+      case 1 /* right */:
+      case 3 /* down */:
+        this.#setCaret(/* start = */ false);
+        break;
+    }
+  }
+
+  #setCaret(start) {
+    if (!this.#anchorNode) {
+      return;
+    }
+    const selection = window.getSelection();
+    if (start) {
+      selection.setPosition(this.#anchorNode, this.#anchorOffset);
+    } else {
+      selection.setPosition(this.#focusNode, this.#focusOffset);
+    }
+  }
+
   /** @inheritdoc */
   select() {
     super.select();
+    if (!this.#outlineId) {
+      return;
+    }
     this.parent?.drawLayer.removeClass(this.#outlineId, "hovered");
     this.parent?.drawLayer.addClass(this.#outlineId, "selected");
   }
@@ -520,7 +635,27 @@ class HighlightEditor extends AnnotationEditor {
   /** @inheritdoc */
   unselect() {
     super.unselect();
+    if (!this.#outlineId) {
+      return;
+    }
     this.parent?.drawLayer.removeClass(this.#outlineId, "selected");
+    if (!this.#isFreeHighlight) {
+      this.#setCaret(/* start = */ false);
+    }
+  }
+
+  /** @inheritdoc */
+  get _mustFixPosition() {
+    return !this.#isFreeHighlight;
+  }
+
+  /** @inheritdoc */
+  show(visible = this._isVisible) {
+    super.show(visible);
+    if (this.parent) {
+      this.parent.drawLayer.show(this.#id, visible);
+      this.parent.drawLayer.show(this.#outlineId, visible);
+    }
   }
 
   #getRotation() {
@@ -529,18 +664,17 @@ class HighlightEditor extends AnnotationEditor {
     return this.#isFreeHighlight ? this.rotation : 0;
   }
 
-  #serializeBoxes(rect) {
+  #serializeBoxes() {
     if (this.#isFreeHighlight) {
       return null;
     }
     const [pageWidth, pageHeight] = this.pageDimensions;
     const boxes = this.#boxes;
     const quadPoints = new Array(boxes.length * 8);
-    const [tx, ty] = rect;
     let i = 0;
     for (const { x, y, width, height } of boxes) {
-      const sx = tx + x * pageWidth;
-      const sy = ty + (1 - y - height) * pageHeight;
+      const sx = x * pageWidth;
+      const sy = (1 - y - height) * pageHeight;
       // The specifications say that the rectangle should start from the bottom
       // left corner and go counter-clockwise.
       // But when opening the file in Adobe Acrobat it appears that this isn't
@@ -622,6 +756,7 @@ class HighlightEditor extends AnnotationEditor {
         highlightId: this._freeHighlightId,
         highlightOutlines: this._freeHighlight.getOutlines(),
         clipPathId: this._freeHighlightClipId,
+        methodOfCreation: "main_toolbar",
       });
     } else {
       parent.drawLayer.removeFreeHighlight(this._freeHighlightId);
@@ -675,7 +810,7 @@ class HighlightEditor extends AnnotationEditor {
       color,
       opacity: this.#opacity,
       thickness: this.#thickness,
-      quadPoints: this.#serializeBoxes(rect),
+      quadPoints: this.#serializeBoxes(),
       outlines: this.#serializeOutlines(rect),
       pageIndex: this.pageIndex,
       rect,

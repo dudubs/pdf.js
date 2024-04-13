@@ -304,6 +304,12 @@ pdfjs-editor-stamp-button-label = 画像を追加または編集
 pdfjs-editor-highlight-button =
     .title = 強調します
 pdfjs-editor-highlight-button-label = 強調
+pdfjs-highlight-floating-button =
+    .title = 強調
+pdfjs-highlight-floating-button1 =
+    .title = 強調
+    .aria-label = 強調します
+pdfjs-highlight-floating-button-label = 強調
 
 ## Remove button for the various kind of editor.
 
@@ -329,6 +335,8 @@ pdfjs-editor-stamp-add-image-button =
 pdfjs-editor-stamp-add-image-button-label = 画像を追加
 # This refers to the thickness of the line used for free highlighting (not bound to text)
 pdfjs-editor-free-highlight-thickness-input = 太さ
+pdfjs-editor-free-highlight-thickness-title =
+    .title = テキスト以外のアイテムを強調する時の太さを変更します
 pdfjs-free-text =
     .aria-label = フリーテキスト注釈エディター
 pdfjs-free-text-default-content = テキストを入力してください...
@@ -385,3 +393,10 @@ pdfjs-editor-colorpicker-pink =
     .title = ピンク色
 pdfjs-editor-colorpicker-red =
     .title = 赤色
+
+## Show all highlights
+## This is a toggle button to show/hide all the highlights.
+
+pdfjs-editor-highlight-show-all-button-label = すべて表示
+pdfjs-editor-highlight-show-all-button =
+    .title = 強調の表示を切り替えます

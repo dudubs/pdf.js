@@ -13,8 +13,9 @@
  * limitations under the License.
  */
 
-const compatibilityParams = Object.create(null);
 if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
+  // eslint-disable-next-line no-var
+  var compatibilityParams = Object.create(null);
   if (
     typeof PDFJSDev !== "undefined" &&
     PDFJSDev.test("LIB") &&
@@ -143,6 +144,19 @@ const defaultOptions = {
     value: typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING"),
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
   },
+  enableHighlightFloatingButton: {
+    // We'll probably want to make some experiments before enabling this
+    // in Firefox release, but it has to be temporary.
+    // TODO: remove it when unnecessary.
+    /** @type {boolean} */
+    value: typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING"),
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
+  enableML: {
+    /** @type {boolean} */
+    value: false,
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
   enablePermissions: {
     /** @type {boolean} */
     value: false,
@@ -201,7 +215,7 @@ const defaultOptions = {
   },
   maxCanvasPixels: {
     /** @type {number} */
-    value: 16777216,
+    value: 2 ** 25,
     kind: OptionKind.VIEWER,
   },
   forcePageColors: {
@@ -404,57 +418,66 @@ if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
 
 const userOptions = Object.create(null);
 
+if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
+  // Apply any compatibility-values to the user-options,
+  // see also `AppOptions.remove` below.
+  for (const name in compatibilityParams) {
+    userOptions[name] = compatibilityParams[name];
+  }
+}
+
+if (typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING || LIB")) {
+  // Ensure that the `defaultOptions` are correctly specified.
+  for (const name in defaultOptions) {
+    const { value, kind } = defaultOptions[name];
+
+    if (kind & OptionKind.PREFERENCE) {
+      if (kind === OptionKind.PREFERENCE) {
+        throw new Error(`Cannot use only "PREFERENCE" kind: ${name}`);
+      }
+      if (kind & OptionKind.BROWSER) {
+        throw new Error(`Cannot mix "PREFERENCE" and "BROWSER" kind: ${name}`);
+      }
+      if (
+        typeof compatibilityParams === "object" &&
+        compatibilityParams[name] !== undefined
+      ) {
+        throw new Error(
+          `Should not have compatibility-value for "PREFERENCE" kind: ${name}`
+        );
+      }
+      // Only "simple" preference-values are allowed.
+      if (
+        typeof value !== "boolean" &&
+        typeof value !== "string" &&
+        !Number.isInteger(value)
+      ) {
+        throw new Error(`Invalid value for "PREFERENCE" kind: ${name}`);
+      }
+    }
+  }
+}
+
 class AppOptions {
   constructor() {
     throw new Error("Cannot initialize AppOptions.");
   }
 
   static get(name) {
-    const userOption = userOptions[name];
-    if (userOption !== undefined) {
-      return userOption;
-    }
-    const defaultOption = defaultOptions[name];
-    if (defaultOption !== undefined) {
-      return compatibilityParams[name] ?? defaultOption.value;
-    }
-    return undefined;
+    return userOptions[name] ?? defaultOptions[name]?.value ?? undefined;
   }
 
-  static getAll(kind = null) {
+  static getAll(kind = null, defaultOnly = false) {
     const options = Object.create(null);
     for (const name in defaultOptions) {
       const defaultOption = defaultOptions[name];
-      if (kind) {
-        if (!(kind & defaultOption.kind)) {
-          continue;
-        }
-        if (
-          (typeof PDFJSDev === "undefined" || PDFJSDev.test("LIB")) &&
-          kind === OptionKind.PREFERENCE
-        ) {
-          if (defaultOption.kind & OptionKind.BROWSER) {
-            throw new Error(`Invalid kind for preference: ${name}`);
-          }
-          const value = defaultOption.value,
-            valueType = typeof value;
 
-          if (
-            valueType === "boolean" ||
-            valueType === "string" ||
-            (valueType === "number" && Number.isInteger(value))
-          ) {
-            options[name] = value;
-            continue;
-          }
-          throw new Error(`Invalid type for preference: ${name}`);
-        }
+      if (kind && !(kind & defaultOption.kind)) {
+        continue;
       }
-      const userOption = userOptions[name];
-      options[name] =
-        userOption !== undefined
-          ? userOption
-          : compatibilityParams[name] ?? defaultOption.value;
+      options[name] = defaultOnly
+        ? defaultOption.value
+        : userOptions[name] ?? defaultOption.value;
     }
     return options;
   }
@@ -470,11 +493,16 @@ class AppOptions {
         // opt-out of having the `Preferences` override existing `AppOptions`.
         return;
       }
-      if (Object.keys(userOptions).length) {
+      for (const name in userOptions) {
+        // Ignore any compatibility-values in the user-options.
+        if (compatibilityParams[name] !== undefined) {
+          continue;
+        }
         console.warn(
           "setAll: The Preferences may override manually set AppOptions; " +
             'please use the "disablePreferences"-option in order to prevent that.'
         );
+        break;
       }
     }
 
@@ -485,7 +513,15 @@ class AppOptions {
 
   static remove(name) {
     delete userOptions[name];
+
+    if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
+      // Re-apply a compatibility-value, if it exists, to the user-options.
+      const val = compatibilityParams[name];
+      if (val !== undefined) {
+        userOptions[name] = val;
+      }
+    }
   }
 }
 
-export { AppOptions, compatibilityParams, OptionKind };
+export { AppOptions, OptionKind };

@@ -44,6 +44,8 @@ class AnnotationEditor {
 
   #altText = null;
 
+  #disabled = false;
+
   #keepAspectRatio = false;
 
   #resizersDiv = null;
@@ -60,6 +62,8 @@ class AnnotationEditor {
 
   #hasBeenClicked = false;
 
+  #initialPosition = null;
+
   #isEditing = false;
 
   #isInEditMode = false;
@@ -72,7 +76,11 @@ class AnnotationEditor {
 
   #prevDragY = 0;
 
+  #telemetryTimeouts = null;
+
   _initialOptions = Object.create(null);
+
+  _isVisible = true;
 
   _uiManager = null;
 
@@ -89,6 +97,11 @@ class AnnotationEditor {
   static _colorManager = new ColorManager();
 
   static _zIndex = 1;
+
+  // Time to wait (in ms) before sending the telemetry data.
+  // We wait a bit to avoid sending too many requests when changing something
+  // like the thickness of a line.
+  static _telemetryTimeout = 1000;
 
   static get _resizerKeyboardManager() {
     const resize = AnnotationEditor.prototype._resizeWithKeyboard;
@@ -434,6 +447,8 @@ class AnnotationEditor {
    * @param {number} y - y-translation in screen coordinates.
    */
   translate(x, y) {
+    // We don't change the initial position because the move here hasn't been
+    // done by the user.
     this.#translate(this.parentDimensions, x, y);
   }
 
@@ -444,11 +459,13 @@ class AnnotationEditor {
    * @param {number} y - y-translation in page coordinates.
    */
   translateInPage(x, y) {
+    this.#initialPosition ||= [this.x, this.y];
     this.#translate(this.pageDimensions, x, y);
     this.div.scrollIntoView({ block: "nearest" });
   }
 
   drag(tx, ty) {
+    this.#initialPosition ||= [this.x, this.y];
     const [parentWidth, parentHeight] = this.parentDimensions;
     this.x += tx / parentWidth;
     this.y += ty / parentHeight;
@@ -481,6 +498,14 @@ class AnnotationEditor {
     this.div.scrollIntoView({ block: "nearest" });
   }
 
+  get _hasBeenMoved() {
+    return (
+      !!this.#initialPosition &&
+      (this.#initialPosition[0] !== this.x ||
+        this.#initialPosition[1] !== this.y)
+    );
+  }
+
   /**
    * Get the translation to take into account the editor border.
    * The CSS engine positions the element by taking the border into account so
@@ -506,6 +531,14 @@ class AnnotationEditor {
   }
 
   /**
+   * @returns {boolean} true if position must be fixed (i.e. make the x and y
+   * living in the page).
+   */
+  get _mustFixPosition() {
+    return true;
+  }
+
+  /**
    * Fix the position of the editor in order to keep it inside its parent page.
    * @param {number} [rotation] - the rotation of the page.
    */
@@ -517,23 +550,25 @@ class AnnotationEditor {
     x *= pageWidth;
     y *= pageHeight;
 
-    switch (rotation) {
-      case 0:
-        x = Math.max(0, Math.min(pageWidth - width, x));
-        y = Math.max(0, Math.min(pageHeight - height, y));
-        break;
-      case 90:
-        x = Math.max(0, Math.min(pageWidth - height, x));
-        y = Math.min(pageHeight, Math.max(width, y));
-        break;
-      case 180:
-        x = Math.min(pageWidth, Math.max(width, x));
-        y = Math.min(pageHeight, Math.max(height, y));
-        break;
-      case 270:
-        x = Math.min(pageWidth, Math.max(height, x));
-        y = Math.max(0, Math.min(pageHeight - width, y));
-        break;
+    if (this._mustFixPosition) {
+      switch (rotation) {
+        case 0:
+          x = Math.max(0, Math.min(pageWidth - width, x));
+          y = Math.max(0, Math.min(pageHeight - height, y));
+          break;
+        case 90:
+          x = Math.max(0, Math.min(pageWidth - height, x));
+          y = Math.min(pageHeight, Math.max(width, y));
+          break;
+        case 180:
+          x = Math.min(pageWidth, Math.max(width, x));
+          y = Math.min(pageHeight, Math.max(height, y));
+          break;
+        case 270:
+          x = Math.min(pageWidth, Math.max(height, x));
+          y = Math.max(0, Math.min(pageHeight - width, y));
+          break;
+      }
     }
 
     this.x = x /= pageWidth;
@@ -970,6 +1005,10 @@ class AnnotationEditor {
     this.#altText.data = data;
   }
 
+  hasAltText() {
+    return !this.#altText?.isEmpty();
+  }
+
   /**
    * Render this editor in a div.
    * @returns {HTMLDivElement | null}
@@ -979,7 +1018,10 @@ class AnnotationEditor {
     this.div.setAttribute("data-editor-rotation", (360 - this.rotation) % 360);
     this.div.className = this.name;
     this.div.setAttribute("id", this.id);
-    this.div.setAttribute("tabIndex", 0);
+    this.div.tabIndex = this.#disabled ? -1 : 0;
+    if (!this._isVisible) {
+      this.div.classList.add("hidden");
+    }
 
     this.setInForeground();
 
@@ -1319,6 +1361,13 @@ class AnnotationEditor {
     }
     this.#stopResizing();
     this.removeEditToolbar();
+    if (this.#telemetryTimeouts) {
+      for (const timeout of this.#telemetryTimeouts.values()) {
+        clearTimeout(timeout);
+      }
+      this.#telemetryTimeouts = null;
+    }
+    this.parent = null;
   }
 
   /**
@@ -1503,7 +1552,9 @@ class AnnotationEditor {
     if (this.div?.contains(document.activeElement)) {
       // Don't use this.div.blur() because we don't know where the focus will
       // go.
-      this._uiManager.currentLayer.div.focus();
+      this._uiManager.currentLayer.div.focus({
+        preventScroll: true,
+      });
     }
     this.#editToolbar?.hide();
   }
@@ -1591,6 +1642,73 @@ class AnnotationEditor {
 
   static canCreateNewEmptyEditor() {
     return true;
+  }
+
+  /**
+   * Get the data to report to the telemetry when the editor is added.
+   * @returns {Object}
+   */
+  get telemetryInitialData() {
+    return { action: "added" };
+  }
+
+  /**
+   * The telemetry data to use when saving/printing.
+   * @returns {Object|null}
+   */
+  get telemetryFinalData() {
+    return null;
+  }
+
+  _reportTelemetry(data, mustWait = false) {
+    if (mustWait) {
+      this.#telemetryTimeouts ||= new Map();
+      const { action } = data;
+      let timeout = this.#telemetryTimeouts.get(action);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      timeout = setTimeout(() => {
+        this._reportTelemetry(data);
+        this.#telemetryTimeouts.delete(action);
+        if (this.#telemetryTimeouts.size === 0) {
+          this.#telemetryTimeouts = null;
+        }
+      }, AnnotationEditor._telemetryTimeout);
+      this.#telemetryTimeouts.set(action, timeout);
+      return;
+    }
+    data.type ||= this.editorType;
+    this._uiManager._eventBus.dispatch("reporttelemetry", {
+      source: this,
+      details: {
+        type: "editing",
+        data,
+      },
+    });
+  }
+
+  /**
+   * Show or hide this editor.
+   * @param {boolean|undefined} visible
+   */
+  show(visible = this._isVisible) {
+    this.div.classList.toggle("hidden", !visible);
+    this._isVisible = visible;
+  }
+
+  enable() {
+    if (this.div) {
+      this.div.tabIndex = 0;
+    }
+    this.#disabled = false;
+  }
+
+  disable() {
+    if (this.div) {
+      this.div.tabIndex = -1;
+    }
+    this.#disabled = true;
   }
 }
 

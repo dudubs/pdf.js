@@ -218,7 +218,7 @@ class StampEditor extends AnnotationEditor {
       return;
     }
 
-    if (this.#bitmapId) {
+    if (this.#bitmapId && this.#canvas === null) {
       this.#getBitmap();
     }
 
@@ -241,7 +241,8 @@ class StampEditor extends AnnotationEditor {
       this.#bitmapPromise ||
       this.#bitmap ||
       this.#bitmapUrl ||
-      this.#bitmapFile
+      this.#bitmapFile ||
+      this.#bitmapId
     );
   }
 
@@ -264,6 +265,8 @@ class StampEditor extends AnnotationEditor {
 
     super.render();
     this.div.hidden = true;
+
+    this.addAltTextButton();
 
     if (this.#bitmap) {
       this.#createCanvas();
@@ -326,17 +329,9 @@ class StampEditor extends AnnotationEditor {
     // There are multiple ways to add an image to the page, so here we just
     // count the number of times an image is added to the page whatever the way
     // is.
-    this._uiManager._eventBus.dispatch("reporttelemetry", {
-      source: this,
-      details: {
-        type: "editing",
-        subtype: this.editorType,
-        data: {
-          action: "inserted_image",
-        },
-      },
+    this._reportTelemetry({
+      action: "inserted_image",
     });
-    this.addAltTextButton();
     if (this.#bitmapFileName) {
       canvas.setAttribute("aria-label", this.#bitmapFileName);
     }
@@ -431,6 +426,42 @@ class StampEditor extends AnnotationEditor {
     const bitmap = this.#isSvg
       ? this.#bitmap
       : this.#scaleBitmap(width, height);
+
+    if (this._uiManager.hasMLManager && !this.hasAltText()) {
+      const offscreen = new OffscreenCanvas(width, height);
+      const ctx = offscreen.getContext("2d");
+      ctx.drawImage(
+        bitmap,
+        0,
+        0,
+        bitmap.width,
+        bitmap.height,
+        0,
+        0,
+        width,
+        height
+      );
+      offscreen.convertToBlob().then(blob => {
+        const fileReader = new FileReader();
+        fileReader.onload = () => {
+          const url = fileReader.result;
+          this._uiManager
+            .mlGuess({
+              service: "image-to-text",
+              request: {
+                imageData: url,
+              },
+            })
+            .then(response => {
+              const altText = response?.output || "";
+              if (this.parent && altText && !this.hasAltText()) {
+                this.altTextData = { altText, decorative: false };
+              }
+            });
+        };
+        fileReader.readAsDataURL(blob);
+      });
+    }
     const ctx = canvas.getContext("2d");
     ctx.filter = this._uiManager.hcmFilter;
     ctx.drawImage(

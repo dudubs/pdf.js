@@ -26,12 +26,12 @@ import {
   PasswordException,
   PasswordResponses,
   PermissionFlag,
-  PromiseCapability,
   UnknownErrorException,
 } from "../../src/shared/util.js";
 import {
   buildGetDocumentParams,
   CMAP_URL,
+  createTemporaryNodeServer,
   DefaultFileReaderFactory,
   TEST_PDFS_PATH,
 } from "./test_utils.js";
@@ -67,13 +67,27 @@ describe("api", function () {
     buildGetDocumentParams(tracemonkeyFileName);
 
   let CanvasFactory;
+  let tempServer = null;
 
   beforeAll(function () {
     CanvasFactory = new DefaultCanvasFactory();
+
+    if (isNodeJS) {
+      tempServer = createTemporaryNodeServer();
+    }
   });
 
   afterAll(function () {
     CanvasFactory = null;
+
+    if (isNodeJS) {
+      // Close the server from accepting new connections after all test
+      // finishes.
+      const { server } = tempServer;
+      server.close();
+
+      tempServer = null;
+    }
   });
 
   function waitSome(callback) {
@@ -119,13 +133,10 @@ describe("api", function () {
     });
 
     it("creates pdf doc from URL-object", async function () {
-      if (isNodeJS) {
-        pending("window.location is not supported in Node.js.");
-      }
-      const urlObj = new URL(
-        TEST_PDFS_PATH + basicApiFileName,
-        window.location
-      );
+      const urlObj = isNodeJS
+        ? new URL(`http://127.0.0.1:${tempServer.port}/${basicApiFileName}`)
+        : new URL(TEST_PDFS_PATH + basicApiFileName, window.location);
+
       const loadingTask = getDocument(urlObj);
       expect(loadingTask instanceof PDFDocumentLoadingTask).toEqual(true);
       const pdfDocument = await loadingTask.promise;
@@ -134,6 +145,9 @@ describe("api", function () {
       expect(pdfDocument instanceof PDFDocumentProxy).toEqual(true);
       expect(pdfDocument.numPages).toEqual(3);
 
+      // Ensure that the Fetch API was used to load the PDF document.
+      expect(pdfDocument.getNetworkStreamName()).toEqual("PDFFetchStream");
+
       await loadingTask.destroy();
     });
 
@@ -141,13 +155,11 @@ describe("api", function () {
       const loadingTask = getDocument(basicApiGetDocumentParams);
       expect(loadingTask instanceof PDFDocumentLoadingTask).toEqual(true);
 
-      const progressReportedCapability = new PromiseCapability();
+      const progressReportedCapability = Promise.withResolvers();
       // Attach the callback that is used to report loading progress;
       // similarly to how viewer.js works.
       loadingTask.onProgress = function (progressData) {
-        if (!progressReportedCapability.settled) {
-          progressReportedCapability.resolve(progressData);
-        }
+        progressReportedCapability.resolve(progressData);
       };
 
       const data = await Promise.all([
@@ -203,7 +215,7 @@ describe("api", function () {
       const loadingTask = getDocument(typedArrayPdf);
       expect(loadingTask instanceof PDFDocumentLoadingTask).toEqual(true);
 
-      const progressReportedCapability = new PromiseCapability();
+      const progressReportedCapability = Promise.withResolvers();
       loadingTask.onProgress = function (data) {
         progressReportedCapability.resolve(data);
       };
@@ -233,7 +245,7 @@ describe("api", function () {
       const loadingTask = getDocument(arrayBufferPdf);
       expect(loadingTask instanceof PDFDocumentLoadingTask).toEqual(true);
 
-      const progressReportedCapability = new PromiseCapability();
+      const progressReportedCapability = Promise.withResolvers();
       loadingTask.onProgress = function (data) {
         progressReportedCapability.resolve(data);
       };
@@ -291,8 +303,14 @@ describe("api", function () {
       const loadingTask = getDocument(buildGetDocumentParams("pr6531_1.pdf"));
       expect(loadingTask instanceof PDFDocumentLoadingTask).toEqual(true);
 
-      const passwordNeededCapability = new PromiseCapability();
-      const passwordIncorrectCapability = new PromiseCapability();
+      const passwordNeededCapability = {
+        ...Promise.withResolvers(),
+        settled: false,
+      };
+      const passwordIncorrectCapability = {
+        ...Promise.withResolvers(),
+        settled: false,
+      };
       // Attach the callback that is used to request a password;
       // similarly to how the default viewer handles passwords.
       loadingTask.onPassword = function (updatePassword, reason) {
@@ -300,6 +318,7 @@ describe("api", function () {
           reason === PasswordResponses.NEED_PASSWORD &&
           !passwordNeededCapability.settled
         ) {
+          passwordNeededCapability.settled = true;
           passwordNeededCapability.resolve();
 
           updatePassword("qwerty"); // Provide an incorrect password.
@@ -309,6 +328,7 @@ describe("api", function () {
           reason === PasswordResponses.INCORRECT_PASSWORD &&
           !passwordIncorrectCapability.settled
         ) {
+          passwordIncorrectCapability.settled = true;
           passwordIncorrectCapability.resolve();
 
           updatePassword("asdfasdf"); // Provide the correct password.
@@ -1704,6 +1724,36 @@ describe("api", function () {
       await loadingTask.destroy();
     });
 
+    it("gets outline, with missing title (issue 17856)", async function () {
+      if (isNodeJS) {
+        pending("Linked test-cases are not supported in Node.js.");
+      }
+      const loadingTask = getDocument(buildGetDocumentParams("issue17856.pdf"));
+      const pdfDoc = await loadingTask.promise;
+      const outline = await pdfDoc.getOutline();
+
+      expect(Array.isArray(outline)).toEqual(true);
+      expect(outline.length).toEqual(9);
+
+      expect(outline[0]).toEqual({
+        action: null,
+        attachment: undefined,
+        dest: "section.1",
+        url: null,
+        unsafeUrl: undefined,
+        newWindow: undefined,
+        setOCGState: undefined,
+        title: "",
+        color: new Uint8ClampedArray([0, 0, 0]),
+        count: undefined,
+        bold: false,
+        italic: false,
+        items: [],
+      });
+
+      await loadingTask.destroy();
+    });
+
     it("gets outline, with dest-strings using PDFDocEncoding (issue 14864)", async function () {
       if (isNodeJS) {
         pending("Linked test-cases are not supported in Node.js.");
@@ -2907,6 +2957,26 @@ describe("api", function () {
       for (let i = 1, ii = annotations.length; i < ii; i++) {
         expect(annotations[i].attachment).toBe(attachment);
       }
+
+      await loadingTask.destroy();
+    });
+
+    it("gets annotations containing /Launch action with /FileSpec dictionary (issue 17846)", async function () {
+      const loadingTask = getDocument(buildGetDocumentParams("issue17846.pdf"));
+      const pdfDoc = await loadingTask.promise;
+      const pdfPage = await pdfDoc.getPage(1);
+
+      const annotations = await pdfPage.getAnnotations();
+      expect(annotations.length).toEqual(1);
+
+      const { annotationType, url, unsafeUrl, newWindow } = annotations[0];
+      expect(annotationType).toEqual(AnnotationType.LINK);
+
+      expect(url).toBeUndefined();
+      expect(unsafeUrl).toEqual(
+        "对不起/没关系/1_1_模块1行政文件和药品信息目录.pdf"
+      );
+      expect(newWindow).toEqual(true);
 
       await loadingTask.destroy();
     });

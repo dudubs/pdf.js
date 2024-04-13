@@ -28,7 +28,6 @@ import {
   MAX_IMAGE_SIZE_TO_CACHE,
   MissingPDFException,
   PasswordException,
-  PromiseCapability,
   RenderingIntentFlag,
   setVerbosityLevel,
   shadow,
@@ -419,7 +418,16 @@ function getDocument(src) {
               PDFJSDev.test("GENERIC") &&
               isNodeJS
             ) {
-              return new PDFNodeStream(params);
+              const isFetchSupported = function () {
+                return (
+                  typeof fetch !== "undefined" &&
+                  typeof Response !== "undefined" &&
+                  "body" in Response.prototype
+                );
+              };
+              return isFetchSupported() && isValidFetchUrl(params.url)
+                ? new PDFFetchStream(params)
+                : new PDFNodeStream(params);
             }
             return isValidFetchUrl(params.url)
               ? new PDFFetchStream(params)
@@ -568,7 +576,7 @@ class PDFDocumentLoadingTask {
   static #docId = 0;
 
   constructor() {
-    this._capability = new PromiseCapability();
+    this._capability = Promise.withResolvers();
     this._transport = null;
     this._worker = null;
 
@@ -665,7 +673,7 @@ class PDFDataRangeTransport {
     this._progressListeners = [];
     this._progressiveReadListeners = [];
     this._progressiveDoneListeners = [];
-    this._readyCapability = new PromiseCapability();
+    this._readyCapability = Promise.withResolvers();
   }
 
   /**
@@ -762,6 +770,9 @@ class PDFDocumentProxy {
 
     if (typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING")) {
       // For testing purposes.
+      Object.defineProperty(this, "getNetworkStreamName", {
+        value: () => this._transport.getNetworkStreamName(),
+      });
       Object.defineProperty(this, "getXFADatasets", {
         value: () => this._transport.getXFADatasets(),
       });
@@ -949,12 +960,26 @@ class PDFDocumentProxy {
   }
 
   /**
+   * @typedef {Object} GetOptionalContentConfigParameters
+   * @property {string} [intent] - Determines the optional content groups that
+   *   are visible by default; valid values are:
+   *    - 'display' (viewable groups).
+   *    - 'print' (printable groups).
+   *    - 'any' (all groups).
+   *   The default value is 'display'.
+   */
+
+  /**
+   * @param {GetOptionalContentConfigParameters} [params] - Optional content
+   *   config parameters.
    * @returns {Promise<OptionalContentConfig>} A promise that is resolved with
    *   an {@link OptionalContentConfig} that contains all the optional content
    *   groups (assuming that the document has any).
    */
-  getOptionalContentConfig() {
-    return this._transport.getOptionalContentConfig();
+  getOptionalContentConfig({ intent = "display" } = {}) {
+    const { renderingIntent } = this._transport.getRenderingIntent(intent);
+
+    return this._transport.getOptionalContentConfig(renderingIntent);
   }
 
   /**
@@ -1340,17 +1365,14 @@ class PDFPageProxy {
   }
 
   /**
-   * @param {GetAnnotationsParameters} params - Annotation parameters.
+   * @param {GetAnnotationsParameters} [params] - Annotation parameters.
    * @returns {Promise<Array<any>>} A promise that is resolved with an
    *   {Array} of the annotation objects.
    */
   getAnnotations({ intent = "display" } = {}) {
-    const intentArgs = this._transport.getRenderingIntent(intent);
+    const { renderingIntent } = this._transport.getRenderingIntent(intent);
 
-    return this._transport.getAnnotations(
-      this._pageIndex,
-      intentArgs.renderingIntent
-    );
+    return this._transport.getAnnotations(this._pageIndex, renderingIntent);
   }
 
   /**
@@ -1411,20 +1433,20 @@ class PDFPageProxy {
       annotationMode,
       printAnnotationStorage
     );
+    const { renderingIntent, cacheKey } = intentArgs;
     // If there was a pending destroy, cancel it so no cleanup happens during
     // this call to render...
     this.#pendingCleanup = false;
     // ... and ensure that a delayed cleanup is always aborted.
     this.#abortDelayedCleanup();
 
-    if (!optionalContentConfigPromise) {
-      optionalContentConfigPromise = this._transport.getOptionalContentConfig();
-    }
+    optionalContentConfigPromise ||=
+      this._transport.getOptionalContentConfig(renderingIntent);
 
-    let intentState = this._intentStates.get(intentArgs.cacheKey);
+    let intentState = this._intentStates.get(cacheKey);
     if (!intentState) {
       intentState = Object.create(null);
-      this._intentStates.set(intentArgs.cacheKey, intentState);
+      this._intentStates.set(cacheKey, intentState);
     }
 
     // Ensure that a pending `streamReader` cancel timeout is always aborted.
@@ -1433,14 +1455,12 @@ class PDFPageProxy {
       intentState.streamReaderCancelTimeout = null;
     }
 
-    const intentPrint = !!(
-      intentArgs.renderingIntent & RenderingIntentFlag.PRINT
-    );
+    const intentPrint = !!(renderingIntent & RenderingIntentFlag.PRINT);
 
     // If there's no displayReadyCapability yet, then the operatorList
     // was never requested before. Make the request and create the promise.
     if (!intentState.displayReadyCapability) {
-      intentState.displayReadyCapability = new PromiseCapability();
+      intentState.displayReadyCapability = Promise.withResolvers();
       intentState.operatorList = {
         fnArray: [],
         argsArray: [],
@@ -1512,6 +1532,12 @@ class PDFPageProxy {
         }
         this._stats?.time("Rendering");
 
+        if (!(optionalContentConfig.renderingIntent & renderingIntent)) {
+          throw new Error(
+            "Must use the same `intent`-argument when calling the `PDFPageProxy.render` " +
+              "and `PDFDocumentProxy.getOptionalContentConfig` methods."
+          );
+        }
         internalRenderTask.initializeGraphics({
           transparency,
           optionalContentConfig,
@@ -1561,7 +1587,7 @@ class PDFPageProxy {
     if (!intentState.opListReadCapability) {
       opListTask = Object.create(null);
       opListTask.operatorListChanged = operatorListChanged;
-      intentState.opListReadCapability = new PromiseCapability();
+      intentState.opListReadCapability = Promise.withResolvers();
       (intentState.renderTasks ||= new Set()).add(opListTask);
       intentState.operatorList = {
         fnArray: [],
@@ -2022,7 +2048,7 @@ class PDFWorker {
     this.destroyed = false;
     this.verbosity = verbosity;
 
-    this._readyCapability = new PromiseCapability();
+    this._readyCapability = Promise.withResolvers();
     this._port = null;
     this._webWorker = null;
     this._messageHandler = null;
@@ -2338,12 +2364,15 @@ class WorkerTransport {
     this._networkStream = networkStream;
     this._fullReader = null;
     this._lastProgress = null;
-    this.downloadInfoCapability = new PromiseCapability();
+    this.downloadInfoCapability = Promise.withResolvers();
 
     this.setupMessageHandler();
 
     if (typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING")) {
       // For testing purposes.
+      Object.defineProperty(this, "getNetworkStreamName", {
+        value: () => networkStream?.constructor?.name || null,
+      });
       Object.defineProperty(this, "getXFADatasets", {
         value: () =>
           this.messageHandler.sendWithPromise("GetXFADatasets", null),
@@ -2441,7 +2470,7 @@ class WorkerTransport {
     }
 
     this.destroyed = true;
-    this.destroyCapability = new PromiseCapability();
+    this.destroyCapability = Promise.withResolvers();
 
     this.#passwordCapability?.reject(
       new Error("Worker was destroyed during onPassword callback")
@@ -2532,7 +2561,7 @@ class WorkerTransport {
     });
 
     messageHandler.on("ReaderHeadersReady", data => {
-      const headersCapability = new PromiseCapability();
+      const headersCapability = Promise.withResolvers();
       const fullReader = this._fullReader;
       fullReader.headersReady.then(() => {
         // If stream or range are disabled, it's our only way to report
@@ -2647,7 +2676,7 @@ class WorkerTransport {
     });
 
     messageHandler.on("PasswordRequest", exception => {
-      this.#passwordCapability = new PromiseCapability();
+      this.#passwordCapability = Promise.withResolvers();
 
       if (loadingTask.onPassword) {
         const updatePassword = password => {
@@ -2994,10 +3023,10 @@ class WorkerTransport {
     return this.messageHandler.sendWithPromise("GetOutline", null);
   }
 
-  getOptionalContentConfig() {
-    return this.messageHandler
-      .sendWithPromise("GetOptionalContentConfig", null)
-      .then(results => new OptionalContentConfig(results));
+  getOptionalContentConfig(renderingIntent) {
+    return this.#cacheSimpleMethod("GetOptionalContentConfig").then(
+      data => new OptionalContentConfig(data, renderingIntent)
+    );
   }
 
   getPermissions() {
@@ -3059,6 +3088,8 @@ class WorkerTransport {
   }
 }
 
+const INITIAL_DATA = Symbol("INITIAL_DATA");
+
 /**
  * A PDF document and page is built of many objects. E.g. there are objects for
  * fonts, images, rendering code, etc. These objects may get processed inside of
@@ -3075,8 +3106,8 @@ class PDFObjects {
    */
   #ensureObj(objId) {
     return (this.#objs[objId] ||= {
-      capability: new PromiseCapability(),
-      data: null,
+      ...Promise.withResolvers(),
+      data: INITIAL_DATA,
     });
   }
 
@@ -3097,7 +3128,7 @@ class PDFObjects {
     // not required to be resolved right now.
     if (callback) {
       const obj = this.#ensureObj(objId);
-      obj.capability.promise.then(() => callback(obj.data));
+      obj.promise.then(() => callback(obj.data));
       return null;
     }
     // If there isn't a callback, the user expects to get the resolved data
@@ -3105,7 +3136,7 @@ class PDFObjects {
     const obj = this.#objs[objId];
     // If there isn't an object yet or the object isn't resolved, then the
     // data isn't ready yet!
-    if (!obj?.capability.settled) {
+    if (!obj || obj.data === INITIAL_DATA) {
       throw new Error(`Requesting object that isn't resolved yet ${objId}.`);
     }
     return obj.data;
@@ -3117,7 +3148,7 @@ class PDFObjects {
    */
   has(objId) {
     const obj = this.#objs[objId];
-    return obj?.capability.settled ?? false;
+    return !!obj && obj.data !== INITIAL_DATA;
   }
 
   /**
@@ -3129,7 +3160,7 @@ class PDFObjects {
   resolve(objId, data = null) {
     const obj = this.#ensureObj(objId);
     obj.data = data;
-    obj.capability.resolve();
+    obj.resolve();
   }
 
   clear() {
@@ -3142,9 +3173,9 @@ class PDFObjects {
 
   *[Symbol.iterator]() {
     for (const objId in this.#objs) {
-      const { capability, data } = this.#objs[objId];
+      const { data } = this.#objs[objId];
 
-      if (!capability.settled) {
+      if (data === INITIAL_DATA) {
         continue;
       }
       yield [objId, data];
@@ -3253,7 +3284,7 @@ class InternalRenderTask {
     this._useRequestAnimationFrame =
       useRequestAnimationFrame === true && typeof window !== "undefined";
     this.cancelled = false;
-    this.capability = new PromiseCapability();
+    this.capability = Promise.withResolvers();
     this.task = new RenderTask(this);
     // caching this-bound methods
     this._cancelBound = this.cancel.bind(this);

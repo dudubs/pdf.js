@@ -324,7 +324,7 @@ class Catalog {
         continue;
       }
       if (!outlineDict.has("Title")) {
-        throw new FormatError("Invalid outline item encountered.");
+        warn("Invalid outline item encountered.");
       }
 
       const data = { url: null, dest: null, action: null };
@@ -357,7 +357,7 @@ class Catalog {
         unsafeUrl: data.unsafeUrl,
         newWindow: data.newWindow,
         setOCGState: data.setOCGState,
-        title: stringToPDFString(title),
+        title: typeof title === "string" ? stringToPDFString(title) : "",
         color: rgbColor,
         count: Number.isInteger(count) ? count : undefined,
         bold: !!(flags & 2),
@@ -445,20 +445,10 @@ class Catalog {
           continue;
         }
         groupRefs.put(groupRef);
-        const group = this.xref.fetch(groupRef);
-        groups.push({
-          id: groupRef.toString(),
-          name:
-            typeof group.get("Name") === "string"
-              ? stringToPDFString(group.get("Name"))
-              : null,
-          intent:
-            typeof group.get("Intent") === "string"
-              ? stringToPDFString(group.get("Intent"))
-              : null,
-        });
+
+        groups.push(this.#readOptionalContentGroup(groupRef));
       }
-      config = this._readOptionalContentConfig(defaultConfig, groupRefs);
+      config = this.#readOptionalContentConfig(defaultConfig, groupRefs);
       config.groups = groups;
     } catch (ex) {
       if (ex instanceof MissingDataException) {
@@ -469,7 +459,65 @@ class Catalog {
     return shadow(this, "optionalContentConfig", config);
   }
 
-  _readOptionalContentConfig(config, contentGroupRefs) {
+  #readOptionalContentGroup(groupRef) {
+    const group = this.xref.fetch(groupRef);
+    const obj = {
+      id: groupRef.toString(),
+      name: null,
+      intent: null,
+      usage: {
+        print: null,
+        view: null,
+      },
+    };
+
+    const name = group.get("Name");
+    if (typeof name === "string") {
+      obj.name = stringToPDFString(name);
+    }
+
+    let intent = group.getArray("Intent");
+    if (!Array.isArray(intent)) {
+      intent = [intent];
+    }
+    if (intent.every(i => i instanceof Name)) {
+      obj.intent = intent.map(i => i.name);
+    }
+
+    const usage = group.get("Usage");
+    if (!(usage instanceof Dict)) {
+      return obj;
+    }
+    const usageObj = obj.usage;
+
+    const print = usage.get("Print");
+    if (print instanceof Dict) {
+      const printState = print.get("PrintState");
+      if (printState instanceof Name) {
+        switch (printState.name) {
+          case "ON":
+          case "OFF":
+            usageObj.print = { printState: printState.name };
+        }
+      }
+    }
+
+    const view = usage.get("View");
+    if (view instanceof Dict) {
+      const viewState = view.get("ViewState");
+      if (viewState instanceof Name) {
+        switch (viewState.name) {
+          case "ON":
+          case "OFF":
+            usageObj.view = { viewState: viewState.name };
+        }
+      }
+    }
+
+    return obj;
+  }
+
+  #readOptionalContentConfig(config, contentGroupRefs) {
     function parseOnOff(refs) {
       const onParsed = [];
       if (Array.isArray(refs)) {
@@ -1520,9 +1568,13 @@ class Catalog {
         case "GoToR":
           const urlDict = action.get("F");
           if (urlDict instanceof Dict) {
-            // We assume that we found a FileSpec dictionary
-            // and fetch the URL without checking any further.
-            url = urlDict.get("F") || null;
+            const fs = new FileSpec(
+              urlDict,
+              /* xref = */ null,
+              /* skipContent = */ true
+            );
+            const { filename } = fs.serializable;
+            url = filename;
           } else if (typeof urlDict === "string") {
             url = urlDict;
           }

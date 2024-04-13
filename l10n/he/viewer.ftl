@@ -304,6 +304,12 @@ pdfjs-editor-stamp-button-label = הוספה או עריכת תמונות
 pdfjs-editor-highlight-button =
     .title = סימון
 pdfjs-editor-highlight-button-label = סימון
+pdfjs-highlight-floating-button =
+    .title = סימון
+pdfjs-highlight-floating-button1 =
+    .title = סימון
+    .aria-label = סימון
+pdfjs-highlight-floating-button-label = סימון
 
 ## Remove button for the various kind of editor.
 
@@ -329,6 +335,8 @@ pdfjs-editor-stamp-add-image-button =
 pdfjs-editor-stamp-add-image-button-label = הוספת תמונה
 # This refers to the thickness of the line used for free highlighting (not bound to text)
 pdfjs-editor-free-highlight-thickness-input = עובי
+pdfjs-editor-free-highlight-thickness-title =
+    .title = שינוי עובי בעת הדגשת פריטים שאינם טקסט
 pdfjs-free-text =
     .aria-label = עורך טקסט
 pdfjs-free-text-default-content = להתחיל להקליד…
@@ -385,3 +393,10 @@ pdfjs-editor-colorpicker-pink =
     .title = ורוד
 pdfjs-editor-colorpicker-red =
     .title = אדום
+
+## Show all highlights
+## This is a toggle button to show/hide all the highlights.
+
+pdfjs-editor-highlight-show-all-button-label = הצגת הכול
+pdfjs-editor-highlight-show-all-button =
+    .title = הצגת הכול

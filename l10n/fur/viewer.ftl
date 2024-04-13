@@ -304,6 +304,12 @@ pdfjs-editor-stamp-button-label = Zonte o modifiche imagjins
 pdfjs-editor-highlight-button =
     .title = Evidenzie
 pdfjs-editor-highlight-button-label = Evidenzie
+pdfjs-highlight-floating-button =
+    .title = Evidenzie
+pdfjs-highlight-floating-button1 =
+    .title = Evidenzie
+    .aria-label = Evidenzie
+pdfjs-highlight-floating-button-label = Evidenzie
 
 ## Remove button for the various kind of editor.
 
@@ -329,6 +335,8 @@ pdfjs-editor-stamp-add-image-button =
 pdfjs-editor-stamp-add-image-button-label = Zonte imagjin
 # This refers to the thickness of the line used for free highlighting (not bound to text)
 pdfjs-editor-free-highlight-thickness-input = Spessôr
+pdfjs-editor-free-highlight-thickness-title =
+    .title = Modifiche il spessôr de selezion pai elements che no son testuâi
 pdfjs-free-text =
     .aria-label = Editôr di test
 pdfjs-free-text-default-content = Scomence a scrivi…
@@ -385,3 +393,10 @@ pdfjs-editor-colorpicker-pink =
     .title = Rose
 pdfjs-editor-colorpicker-red =
     .title = Ros
+
+## Show all highlights
+## This is a toggle button to show/hide all the highlights.
+
+pdfjs-editor-highlight-show-all-button-label = Mostre dut
+pdfjs-editor-highlight-show-all-button =
+    .title = Mostre dut

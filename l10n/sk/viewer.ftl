@@ -128,7 +128,7 @@ pdfjs-document-properties-modification-date = Dátum úpravy:
 #   $date (Date) - the creation/modification date of the PDF file
 #   $time (Time) - the creation/modification time of the PDF file
 pdfjs-document-properties-date-string = { $date }, { $time }
-pdfjs-document-properties-creator = Vytvoril:
+pdfjs-document-properties-creator = Aplikácia:
 pdfjs-document-properties-producer = Tvorca PDF:
 pdfjs-document-properties-version = Verzia PDF:
 pdfjs-document-properties-page-count = Počet strán:
@@ -308,6 +308,12 @@ pdfjs-editor-stamp-button-label = Pridať alebo upraviť obrázky
 pdfjs-editor-highlight-button =
     .title = Zvýrazniť
 pdfjs-editor-highlight-button-label = Zvýrazniť
+pdfjs-highlight-floating-button =
+    .title = Zvýrazniť
+pdfjs-highlight-floating-button1 =
+    .title = Zvýrazniť
+    .aria-label = Zvýrazniť
+pdfjs-highlight-floating-button-label = Zvýrazniť
 
 ## Remove button for the various kind of editor.
 
@@ -391,3 +397,10 @@ pdfjs-editor-colorpicker-pink =
     .title = Ružová
 pdfjs-editor-colorpicker-red =
     .title = Červená
+
+## Show all highlights
+## This is a toggle button to show/hide all the highlights.
+
+pdfjs-editor-highlight-show-all-button-label = Zobraziť všetko
+pdfjs-editor-highlight-show-all-button =
+    .title = Zobraziť všetko

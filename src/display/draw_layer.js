@@ -66,6 +66,7 @@ class DrawLayer {
   #createSVG(box) {
     const svg = DrawLayer._svgFactory.create(1, 1, /* skipDimensions = */ true);
     this.#parent.append(svg);
+    svg.setAttribute("aria-hidden", true);
     DrawLayer.#setBox(svg, box);
 
     return svg;
@@ -198,6 +199,10 @@ class DrawLayer {
 
   updateBox(id, box) {
     DrawLayer.#setBox(this.#mapping.get(id), box);
+  }
+
+  show(id, visible) {
+    this.#mapping.get(id).classList.toggle("hidden", !visible);
   }
 
   rotate(id, angle) {

@@ -34,7 +34,6 @@ import {
   AnnotationMode,
   PermissionFlag,
   PixelsPerInch,
-  PromiseCapability,
   shadow,
   version,
 } from "pdfjs-lib";
@@ -117,7 +116,7 @@ function isValidAnnotationEditorMode(mode) {
  *   landscape pages upon printing. The default is `false`.
  * @property {number} [maxCanvasPixels] - The maximum supported canvas size in
  *   total pixels, i.e. width * height. Use `-1` for no limit, or `0` for
- *   CSS-only zooming. The default value is 4096 * 4096 (16 mega-pixels).
+ *   CSS-only zooming. The default value is 4096 * 8192 (32 mega-pixels).
  * @property {IL10n} [l10n] - Localization service.
  * @property {boolean} [enablePermissions] - Enables PDF document permissions,
  *   when they exist. The default value is `false`.
@@ -214,7 +213,11 @@ class PDFViewer {
 
   #copyCallbackBound = null;
 
+  #enableHighlightFloatingButton = false;
+
   #enablePermissions = false;
+
+  #mlManager = null;
 
   #getAllTextInProgress = false;
 
@@ -280,6 +283,8 @@ class PDFViewer {
       options.annotationEditorMode ?? AnnotationEditorType.NONE;
     this.#annotationEditorHighlightColors =
       options.annotationEditorHighlightColors || null;
+    this.#enableHighlightFloatingButton =
+      options.enableHighlightFloatingButton === true;
     this.imageResourcesPath = options.imageResourcesPath || "";
     this.enablePrintAutoRotate = options.enablePrintAutoRotate || false;
     if (typeof PDFJSDev === "undefined" || PDFJSDev.test("GENERIC")) {
@@ -292,6 +297,7 @@ class PDFViewer {
     }
     this.#enablePermissions = options.enablePermissions || false;
     this.pageColors = options.pageColors || null;
+    this.#mlManager = options.mlManager || null;
 
     this.defaultRenderingQueue = !options.renderingQueue;
     if (
@@ -355,10 +361,7 @@ class PDFViewer {
   get pageViewsReady() {
     // Prevent printing errors when 'disableAutoFetch' is set, by ensuring
     // that *all* pages have in fact been completely loaded.
-    return (
-      this._pagesCapability.settled &&
-      this._pages.every(pageView => pageView?.pdfPage)
-    );
+    return this._pages.every(pageView => pageView?.pdfPage);
   }
 
   /**
@@ -778,7 +781,9 @@ class PDFViewer {
     const pagesCount = pdfDocument.numPages;
     const firstPagePromise = pdfDocument.getPage(1);
     // Rendering (potentially) depends on this, hence fetching it immediately.
-    const optionalContentConfigPromise = pdfDocument.getOptionalContentConfig();
+    const optionalContentConfigPromise = pdfDocument.getOptionalContentConfig({
+      intent: "display",
+    });
     const permissionsPromise = this.#enablePermissions
       ? pdfDocument.getPermissions()
       : Promise.resolve();
@@ -814,7 +819,7 @@ class PDFViewer {
     this.eventBus._on("pagerender", this._onBeforeDraw);
 
     this._onAfterDraw = evt => {
-      if (evt.cssTransform || this._onePageRenderedCapability.settled) {
+      if (evt.cssTransform) {
         return;
       }
       this._onePageRenderedCapability.resolve({ timestamp: evt.timestamp });
@@ -857,7 +862,9 @@ class PDFViewer {
               this.eventBus,
               pdfDocument,
               this.pageColors,
-              this.#annotationEditorHighlightColors
+              this.#annotationEditorHighlightColors,
+              this.#enableHighlightFloatingButton,
+              this.#mlManager
             );
             this.eventBus.dispatch("annotationeditoruimanager", {
               source: this,
@@ -1064,9 +1071,9 @@ class PDFViewer {
     this._location = null;
     this._pagesRotation = 0;
     this._optionalContentConfigPromise = null;
-    this._firstPageCapability = new PromiseCapability();
-    this._onePageRenderedCapability = new PromiseCapability();
-    this._pagesCapability = new PromiseCapability();
+    this._firstPageCapability = Promise.withResolvers();
+    this._onePageRenderedCapability = Promise.withResolvers();
+    this._pagesCapability = Promise.withResolvers();
     this._scrollMode = ScrollMode.VERTICAL;
     this._previousScrollMode = ScrollMode.UNKNOWN;
     this._spreadMode = SpreadMode.NONE;
@@ -1818,7 +1825,7 @@ class PDFViewer {
       console.error("optionalContentConfigPromise: Not initialized yet.");
       // Prevent issues if the getter is accessed *before* the `onePageRendered`
       // promise has resolved; won't (normally) happen in the default viewer.
-      return this.pdfDocument.getOptionalContentConfig();
+      return this.pdfDocument.getOptionalContentConfig({ intent: "display" });
     }
     return this._optionalContentConfigPromise;
   }

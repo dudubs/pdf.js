@@ -296,6 +296,12 @@ pdfjs-editor-stamp-button-label = 添加或编辑图像
 pdfjs-editor-highlight-button =
     .title = 高亮
 pdfjs-editor-highlight-button-label = 高亮
+pdfjs-highlight-floating-button =
+    .title = 高亮
+pdfjs-highlight-floating-button1 =
+    .title = 高亮
+    .aria-label = 高亮
+pdfjs-highlight-floating-button-label = 高亮
 
 ## Remove button for the various kind of editor.
 
@@ -321,6 +327,8 @@ pdfjs-editor-stamp-add-image-button =
 pdfjs-editor-stamp-add-image-button-label = 添加图像
 # This refers to the thickness of the line used for free highlighting (not bound to text)
 pdfjs-editor-free-highlight-thickness-input = 粗细
+pdfjs-editor-free-highlight-thickness-title =
+    .title = 更改高亮粗细（用于文本以外项目）
 pdfjs-free-text =
     .aria-label = 文本编辑器
 pdfjs-free-text-default-content = 开始输入…
@@ -377,3 +385,10 @@ pdfjs-editor-colorpicker-pink =
     .title = 粉色
 pdfjs-editor-colorpicker-red =
     .title = 红色
+
+## Show all highlights
+## This is a toggle button to show/hide all the highlights.
+
+pdfjs-editor-highlight-show-all-button-label = 显示全部
+pdfjs-editor-highlight-show-all-button =
+    .title = 显示全部

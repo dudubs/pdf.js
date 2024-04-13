@@ -85,6 +85,16 @@ function closePages(pages) {
   );
 }
 
+async function waitForSandboxTrip(page) {
+  const handle = await page.evaluateHandle(() => [
+    new Promise(resolve => {
+      window.addEventListener("sandboxtripend", resolve, { once: true });
+      window.PDFViewerApplication.pdfScriptingManager.sandboxTrip();
+    }),
+  ]);
+  await awaitPromise(handle);
+}
+
 function waitForTimeout(milliseconds) {
   /**
    * Wait for the given number of milliseconds.
@@ -105,6 +115,7 @@ async function clearInput(page, selector) {
   await page.click(selector);
   await kbSelectAll(page);
   await page.keyboard.press("Backspace");
+  // eslint-disable-next-line no-restricted-syntax
   await waitForTimeout(10);
 }
 
@@ -206,6 +217,57 @@ async function mockClipboard(pages) {
   );
 }
 
+async function pasteFromClipboard(page, data, selector, timeout = 100) {
+  await page.evaluate(async dat => {
+    const items = Object.create(null);
+    for (const [type, value] of Object.entries(dat)) {
+      if (value.startsWith("data:")) {
+        const resp = await fetch(value);
+        items[type] = await resp.blob();
+      } else {
+        items[type] = new Blob([value], { type });
+      }
+    }
+    await navigator.clipboard.write([new ClipboardItem(items)]);
+  }, data);
+
+  let hasPasteEvent = false;
+  while (!hasPasteEvent) {
+    // We retry to paste if nothing has been pasted before the timeout.
+    const handle = await page.evaluateHandle(
+      (sel, timeOut) => {
+        let callback = null;
+        return [
+          Promise.race([
+            new Promise(resolve => {
+              callback = e => resolve(e.clipboardData.items.length !== 0);
+              (sel ? document.querySelector(sel) : document).addEventListener(
+                "paste",
+                callback,
+                {
+                  once: true,
+                }
+              );
+            }),
+            new Promise(resolve => {
+              setTimeout(() => {
+                document
+                  .querySelector(sel)
+                  .removeEventListener("paste", callback);
+                resolve(false);
+              }, timeOut);
+            }),
+          ]),
+        ];
+      },
+      selector,
+      timeout
+    );
+    await kbPaste(page);
+    hasPasteEvent = await awaitPromise(handle);
+  }
+}
+
 async function getSerialized(page, filter = undefined) {
   const values = await page.evaluate(() => {
     const { map } =
@@ -292,6 +354,7 @@ async function serializeBitmapDimensions(page) {
 async function dragAndDropAnnotation(page, startX, startY, tX, tY) {
   await page.mouse.move(startX, startY);
   await page.mouse.down();
+  // eslint-disable-next-line no-restricted-syntax
   await waitForTimeout(10);
   await page.mouse.move(startX + tX, startY + tY);
   await page.mouse.up();
@@ -307,26 +370,37 @@ function waitForAnnotationEditorLayer(page) {
   });
 }
 
-async function waitForTextLayer(page) {
-  const handle = await createPromise(page, resolve => {
-    window.PDFViewerApplication.eventBus.on("textlayerrendered", resolve);
-  });
-  return awaitPromise(handle);
-}
-
 async function scrollIntoView(page, selector) {
   const handle = await page.evaluateHandle(
     sel => [
       new Promise(resolve => {
-        document
-          .getElementById("viewerContainer")
-          .addEventListener("scrollend", resolve, { once: true });
+        const container = document.getElementById("viewerContainer");
+        if (container.scrollHeight <= container.clientHeight) {
+          resolve();
+          return;
+        }
+        container.addEventListener("scrollend", resolve, { once: true });
         const element = document.querySelector(sel);
         element.scrollIntoView({ behavior: "instant", block: "start" });
       }),
     ],
     selector
   );
+  return awaitPromise(handle);
+}
+
+async function firstPageOnTop(page) {
+  const handle = await page.evaluateHandle(() => [
+    new Promise(resolve => {
+      const container = document.getElementById("viewerContainer");
+      if (container.scrollTop === 0 && container.scrollLeft === 0) {
+        resolve();
+        return;
+      }
+      container.addEventListener("scrollend", resolve, { once: true });
+      container.scrollTo(0, 0);
+    }),
+  ]);
   return awaitPromise(handle);
 }
 
@@ -461,12 +535,31 @@ async function kbDeleteLastWord(page) {
   }
 }
 
+async function kbFocusNext(page) {
+  const handle = await createPromise(page, resolve => {
+    window.addEventListener("focusin", resolve, { once: true });
+  });
+  await page.keyboard.press("Tab");
+  await awaitPromise(handle);
+}
+
+async function kbFocusPrevious(page) {
+  const handle = await createPromise(page, resolve => {
+    window.addEventListener("focusin", resolve, { once: true });
+  });
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("Tab");
+  await page.keyboard.up("Shift");
+  await awaitPromise(handle);
+}
+
 export {
   awaitPromise,
   clearInput,
   closePages,
   createPromise,
   dragAndDropAnnotation,
+  firstPageOnTop,
   getAnnotationStorage,
   getComputedStyleSelector,
   getEditorDimensions,
@@ -484,6 +577,8 @@ export {
   kbBigMoveUp,
   kbCopy,
   kbDeleteLastWord,
+  kbFocusNext,
+  kbFocusPrevious,
   kbGoToBegin,
   kbGoToEnd,
   kbModifierDown,
@@ -494,15 +589,16 @@ export {
   kbUndo,
   loadAndWait,
   mockClipboard,
+  pasteFromClipboard,
   scrollIntoView,
   serializeBitmapDimensions,
   waitForAnnotationEditorLayer,
   waitForEntryInStorage,
   waitForEvent,
+  waitForSandboxTrip,
   waitForSelectedEditor,
   waitForSerialized,
   waitForStorageEntries,
-  waitForTextLayer,
   waitForTimeout,
   waitForUnselectedEditor,
 };
