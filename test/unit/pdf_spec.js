@@ -18,7 +18,6 @@ import {
   AnnotationEditorParamsType,
   AnnotationEditorType,
   AnnotationMode,
-  CMapCompressionType,
   createValidAbsoluteUrl,
   FeatureTest,
   ImageKind,
@@ -42,7 +41,6 @@ import {
   version,
 } from "../../src/display/api.js";
 import {
-  DOMSVGFactory,
   fetchData,
   getFilenameFromUrl,
   getPdfFilenameFromUrl,
@@ -50,22 +48,22 @@ import {
   isDataScheme,
   isPdfFile,
   noContextMenu,
+  OutputScale,
   PDFDateString,
   PixelsPerInch,
   RenderingCancelledException,
   setLayerDimensions,
+  stopEvent,
 } from "../../src/display/display_utils.js";
-import {
-  renderTextLayer,
-  updateTextLayer,
-} from "../../src/display/text_layer.js";
 import { AnnotationEditorLayer } from "../../src/display/editor/annotation_editor_layer.js";
 import { AnnotationEditorUIManager } from "../../src/display/editor/tools.js";
 import { AnnotationLayer } from "../../src/display/annotation_layer.js";
 import { ColorPicker } from "../../src/display/editor/color_picker.js";
+import { DOMSVGFactory } from "../../src/display/svg_factory.js";
 import { DrawLayer } from "../../src/display/draw_layer.js";
 import { GlobalWorkerOptions } from "../../src/display/worker_options.js";
-import { Outliner } from "../../src/display/editor/outliner.js";
+import { TextLayer } from "../../src/display/text_layer.js";
+import { TouchManager } from "../../src/display/touch_manager.js";
 import { XfaLayer } from "../../src/display/xfa_layer.js";
 
 const expectedAPI = Object.freeze({
@@ -77,7 +75,6 @@ const expectedAPI = Object.freeze({
   AnnotationLayer,
   AnnotationMode,
   build,
-  CMapCompressionType,
   ColorPicker,
   createValidAbsoluteUrl,
   DOMSVGFactory,
@@ -97,7 +94,7 @@ const expectedAPI = Object.freeze({
   noContextMenu,
   normalizeUnicode,
   OPS,
-  Outliner,
+  OutputScale,
   PasswordResponses,
   PDFDataRangeTransport,
   PDFDateString,
@@ -105,11 +102,12 @@ const expectedAPI = Object.freeze({
   PermissionFlag,
   PixelsPerInch,
   RenderingCancelledException,
-  renderTextLayer,
   setLayerDimensions,
   shadow,
+  stopEvent,
+  TextLayer,
+  TouchManager,
   UnexpectedResponseException,
-  updateTextLayer,
   Util,
   VerbosityLevel,
   version,

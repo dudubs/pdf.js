@@ -13,6 +13,8 @@
  * limitations under the License.
  */
 
+/** @typedef {import("./overlay_manager.js").OverlayManager} OverlayManager */
+
 import { PasswordResponses } from "pdfjs-lib";
 
 /**
@@ -82,7 +84,7 @@ class PasswordPrompt {
     }
     this.label.setAttribute(
       "data-l10n-id",
-      `pdfjs-password-${passwordIncorrect ? "invalid" : "label"}`
+      passwordIncorrect ? "pdfjs-password-invalid" : "pdfjs-password-label"
     );
   }
 

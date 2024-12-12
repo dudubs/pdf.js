@@ -42,6 +42,10 @@ const THUMBNAIL_SELECTED_CLASS = "selected";
  * @property {Object} [pageColors] - Overwrites background and foreground colors
  *   with user defined ones in order to improve readability in high contrast
  *   mode.
+ * @property {AbortSignal} [abortSignal] - The AbortSignal for the window
+ *   events.
+ * @property {boolean} [enableHWA] - Enables hardware acceleration for
+ *   rendering. The default value is `false`.
  */
 
 /**
@@ -57,14 +61,21 @@ class PDFThumbnailViewer {
     linkService,
     renderingQueue,
     pageColors,
+    abortSignal,
+    enableHWA,
   }) {
     this.container = container;
     this.eventBus = eventBus;
     this.linkService = linkService;
     this.renderingQueue = renderingQueue;
     this.pageColors = pageColors || null;
+    this.enableHWA = enableHWA || false;
 
-    this.scroll = watchScroll(this.container, this.#scrollUpdated.bind(this));
+    this.scroll = watchScroll(
+      this.container,
+      this.#scrollUpdated.bind(this),
+      abortSignal
+    );
     this.#resetView();
   }
 
@@ -199,6 +210,7 @@ class PDFThumbnailViewer {
             linkService: this.linkService,
             renderingQueue: this.renderingQueue,
             pageColors: this.pageColors,
+            enableHWA: this.enableHWA,
           });
           this._thumbnails.push(thumbnail);
         }
