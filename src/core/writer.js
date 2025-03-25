@@ -25,7 +25,7 @@ import {
 import { SimpleDOMNode, SimpleXMLParser } from "./xml_parser.js";
 import { Stream, StringStream } from "./stream.js";
 import { BaseStream } from "./base_stream.js";
-import { calculateMD5 } from "./crypto.js";
+import { calculateMD5 } from "./calculate_md5.js";
 
 async function writeObject(ref, obj, buffer, { encrypt = null }) {
   const transform = encrypt?.createCipherTransform(ref.num, ref.gen);
@@ -168,28 +168,30 @@ function writeInt(number, size, offset, buffer) {
 }
 
 function writeString(string, offset, buffer) {
-  for (let i = 0, len = string.length; i < len; i++) {
+  const ii = string.length;
+  for (let i = 0; i < ii; i++) {
     buffer[offset + i] = string.charCodeAt(i) & 0xff;
   }
+  return offset + ii;
 }
 
 function computeMD5(filesize, xrefInfo) {
   const time = Math.floor(Date.now() / 1000);
   const filename = xrefInfo.filename || "";
-  const md5Buffer = [time.toString(), filename, filesize.toString()];
-  let md5BufferLen = md5Buffer.reduce((a, str) => a + str.length, 0);
-  for (const value of Object.values(xrefInfo.info)) {
-    md5Buffer.push(value);
-    md5BufferLen += value.length;
-  }
+  const md5Buffer = [
+    time.toString(),
+    filename,
+    filesize.toString(),
+    ...Object.values(xrefInfo.info),
+  ];
+  const md5BufferLen = Math.sumPrecise(md5Buffer.map(str => str.length));
 
   const array = new Uint8Array(md5BufferLen);
   let offset = 0;
   for (const str of md5Buffer) {
-    writeString(str, offset, array);
-    offset += str.length;
+    offset = writeString(str, offset, array);
   }
-  return bytesToString(calculateMD5(array));
+  return bytesToString(calculateMD5(array, 0, array.length));
 }
 
 function writeXFADataForAcroform(str, changes) {
@@ -350,7 +352,7 @@ async function getXRefStreamTable(
   newXref.set("W", sizes);
   computeIDs(baseOffset, xrefInfo, newXref);
 
-  const structSize = sizes.reduce((a, x) => a + x, 0);
+  const structSize = Math.sumPrecise(sizes);
   const data = new Uint8Array(structSize * xrefTableData.length);
   const stream = new Stream(data);
   stream.dict = newXref;
@@ -465,10 +467,8 @@ async function incrementalUpdate({
     ? getXRefStreamTable(xrefInfo, baseOffset, newRefs, newXref, buffer)
     : getXRefTable(xrefInfo, baseOffset, newRefs, newXref, buffer));
 
-  const totalLength = buffer.reduce(
-    (a, str) => a + str.length,
-    originalData.length
-  );
+  const totalLength =
+    originalData.length + Math.sumPrecise(buffer.map(str => str.length));
   const array = new Uint8Array(totalLength);
 
   // Original data
@@ -477,8 +477,7 @@ async function incrementalUpdate({
 
   // New data
   for (const str of buffer) {
-    writeString(str, offset, array);
-    offset += str.length;
+    offset = writeString(str, offset, array);
   }
 
   return array;

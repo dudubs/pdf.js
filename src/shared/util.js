@@ -28,8 +28,6 @@ const isNodeJS =
 const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
 const FONT_IDENTITY_MATRIX = [0.001, 0, 0, 0.001, 0, 0];
 
-const MAX_IMAGE_SIZE_TO_CACHE = 10e6; // Ten megabytes.
-
 // Represent the percentage of the height of a single-line field over
 // the font size. Acrobat seems to use this value.
 const LINE_FACTOR = 1.35;
@@ -78,6 +76,7 @@ const AnnotationEditorType = {
   HIGHLIGHT: 9,
   STAMP: 13,
   INK: 15,
+  SIGNATURE: 101,
 };
 
 const AnnotationEditorParamsType = {
@@ -342,6 +341,15 @@ const OPS = {
   setFillTransparent: 93,
 };
 
+// In order to have a switch statement that is fast (i.e. which use a jump
+// table), we need to have the OPS in a contiguous range.
+const DrawOPS = {
+  moveTo: 0,
+  lineTo: 1,
+  curveTo: 2,
+  closePath: 3,
+};
+
 const PasswordResponses = {
   NEED_PASSWORD: 1,
   INCORRECT_PASSWORD: 2,
@@ -413,35 +421,28 @@ function createValidAbsoluteUrl(url, baseUrl = null, options = null) {
   if (!url) {
     return null;
   }
-  try {
-    if (options && typeof url === "string") {
-      // Let URLs beginning with "www." default to using the "http://" protocol.
-      if (options.addDefaultProtocol && url.startsWith("www.")) {
-        const dots = url.match(/\./g);
-        // Avoid accidentally matching a *relative* URL pointing to a file named
-        // e.g. "www.pdf" or similar.
-        if (dots?.length >= 2) {
-          url = `http://${url}`;
-        }
-      }
-
-      // According to ISO 32000-1:2008, section 12.6.4.7, URIs should be encoded
-      // in 7-bit ASCII. Some bad PDFs use UTF-8 encoding; see bug 1122280.
-      if (options.tryConvertEncoding) {
-        try {
-          url = stringToUTF8String(url);
-        } catch {}
+  if (options && typeof url === "string") {
+    // Let URLs beginning with "www." default to using the "http://" protocol.
+    if (options.addDefaultProtocol && url.startsWith("www.")) {
+      const dots = url.match(/\./g);
+      // Avoid accidentally matching a *relative* URL pointing to a file named
+      // e.g. "www.pdf" or similar.
+      if (dots?.length >= 2) {
+        url = `http://${url}`;
       }
     }
 
-    const absoluteUrl = baseUrl ? new URL(url, baseUrl) : new URL(url);
-    if (_isValidProtocol(absoluteUrl)) {
-      return absoluteUrl;
+    // According to ISO 32000-1:2008, section 12.6.4.7, URIs should be encoded
+    // in 7-bit ASCII. Some bad PDFs use UTF-8 encoding; see bug 1122280.
+    if (options.tryConvertEncoding) {
+      try {
+        url = stringToUTF8String(url);
+      } catch {}
     }
-  } catch {
-    /* `new URL()` will throw on incorrect data. */
   }
-  return null;
+
+  const absoluteUrl = baseUrl ? URL.parse(url, baseUrl) : URL.parse(url);
+  return _isValidProtocol(absoluteUrl) ? absoluteUrl : null;
 }
 
 function shadow(obj, prop, value, nonSerializable = false) {
@@ -501,16 +502,11 @@ class InvalidPDFException extends BaseException {
   }
 }
 
-class MissingPDFException extends BaseException {
-  constructor(msg) {
-    super(msg, "MissingPDFException");
-  }
-}
-
-class UnexpectedResponseException extends BaseException {
-  constructor(msg, status) {
-    super(msg, "UnexpectedResponseException");
+class ResponseException extends BaseException {
+  constructor(msg, status, missing) {
+    super(msg, "ResponseException");
     this.status = status;
+    this.missing = missing;
   }
 }
 
@@ -638,18 +634,24 @@ class FeatureTest {
     if (
       (typeof PDFJSDev !== "undefined" && PDFJSDev.test("MOZCENTRAL")) ||
       (typeof navigator !== "undefined" &&
-        typeof navigator?.platform === "string")
+        typeof navigator?.platform === "string" &&
+        typeof navigator?.userAgent === "string")
     ) {
+      const { platform, userAgent } = navigator;
+
       return shadow(this, "platform", {
-        isMac: navigator.platform.includes("Mac"),
-        isWindows: navigator.platform.includes("Win"),
+        isAndroid: userAgent.includes("Android"),
+        isLinux: platform.includes("Linux"),
+        isMac: platform.includes("Mac"),
+        isWindows: platform.includes("Win"),
         isFirefox:
           (typeof PDFJSDev !== "undefined" && PDFJSDev.test("MOZCENTRAL")) ||
-          (typeof navigator?.userAgent === "string" &&
-            navigator.userAgent.includes("Firefox")),
+          userAgent.includes("Firefox"),
       });
     }
     return shadow(this, "platform", {
+      isAndroid: false,
+      isLinux: false,
       isMac: false,
       isWindows: false,
       isFirefox: false,
@@ -672,57 +674,6 @@ const hexNumbers = Array.from(Array(256).keys(), n =>
 class Util {
   static makeHexColor(r, g, b) {
     return `#${hexNumbers[r]}${hexNumbers[g]}${hexNumbers[b]}`;
-  }
-
-  // Apply a scaling matrix to some min/max values.
-  // If a scaling factor is negative then min and max must be
-  // swapped.
-  static scaleMinMax(transform, minMax) {
-    let temp;
-    if (transform[0]) {
-      if (transform[0] < 0) {
-        temp = minMax[0];
-        minMax[0] = minMax[2];
-        minMax[2] = temp;
-      }
-      minMax[0] *= transform[0];
-      minMax[2] *= transform[0];
-
-      if (transform[3] < 0) {
-        temp = minMax[1];
-        minMax[1] = minMax[3];
-        minMax[3] = temp;
-      }
-      minMax[1] *= transform[3];
-      minMax[3] *= transform[3];
-    } else {
-      temp = minMax[0];
-      minMax[0] = minMax[1];
-      minMax[1] = temp;
-      temp = minMax[2];
-      minMax[2] = minMax[3];
-      minMax[3] = temp;
-
-      if (transform[1] < 0) {
-        temp = minMax[1];
-        minMax[1] = minMax[3];
-        minMax[3] = temp;
-      }
-      minMax[1] *= transform[1];
-      minMax[3] *= transform[1];
-
-      if (transform[2] < 0) {
-        temp = minMax[0];
-        minMax[0] = minMax[2];
-        minMax[2] = temp;
-      }
-      minMax[0] *= transform[2];
-      minMax[2] *= transform[2];
-    }
-    minMax[0] += transform[4];
-    minMax[1] += transform[5];
-    minMax[2] += transform[4];
-    minMax[3] += transform[5];
   }
 
   // Concatenates two transformation matrices together and returns the result.
@@ -847,6 +798,20 @@ class Util {
     return [xLow, yLow, xHigh, yHigh];
   }
 
+  static pointBoundingBox(x, y, minMax) {
+    minMax[0] = Math.min(minMax[0], x);
+    minMax[1] = Math.min(minMax[1], y);
+    minMax[2] = Math.max(minMax[2], x);
+    minMax[3] = Math.max(minMax[3], y);
+  }
+
+  static rectBoundingBox(x0, y0, x1, y1, minMax) {
+    minMax[0] = Math.min(minMax[0], x0, x1);
+    minMax[1] = Math.min(minMax[1], y0, y1);
+    minMax[2] = Math.max(minMax[2], x0, x1);
+    minMax[3] = Math.max(minMax[3], y0, y1);
+  }
+
   static #getExtremumOnCurve(x0, x1, x2, x3, y0, y1, y2, y3, t, minMax) {
     if (t <= 0 || t >= 1) {
       return;
@@ -915,19 +880,11 @@ class Util {
 
   // From https://github.com/adobe-webplatform/Snap.svg/blob/b365287722a72526000ac4bfcf0ce4cac2faa015/src/path.js#L852
   static bezierBoundingBox(x0, y0, x1, y1, x2, y2, x3, y3, minMax) {
-    if (minMax) {
-      minMax[0] = Math.min(minMax[0], x0, x3);
-      minMax[1] = Math.min(minMax[1], y0, y3);
-      minMax[2] = Math.max(minMax[2], x0, x3);
-      minMax[3] = Math.max(minMax[3], y0, y3);
-    } else {
-      minMax = [
-        Math.min(x0, x3),
-        Math.min(y0, y3),
-        Math.max(x0, x3),
-        Math.max(y0, y3),
-      ];
-    }
+    minMax[0] = Math.min(minMax[0], x0, x3);
+    minMax[1] = Math.min(minMax[1], y0, y3);
+    minMax[2] = Math.max(minMax[2], x0, x3);
+    minMax[3] = Math.max(minMax[3], y0, y3);
+
     this.#getExtremum(
       x0,
       x1,
@@ -956,7 +913,6 @@ class Util {
       3 * (y1 - y0),
       minMax
     );
-    return minMax;
   }
 }
 
@@ -1087,6 +1043,60 @@ function getUuid() {
 
 const AnnotationPrefix = "pdfjs_internal_id_";
 
+function _isValidExplicitDest(validRef, validName, dest) {
+  if (!Array.isArray(dest) || dest.length < 2) {
+    return false;
+  }
+  const [page, zoom, ...args] = dest;
+  if (!validRef(page) && !Number.isInteger(page)) {
+    return false;
+  }
+  if (!validName(zoom)) {
+    return false;
+  }
+  const argsLen = args.length;
+  let allowNull = true;
+  switch (zoom.name) {
+    case "XYZ":
+      if (argsLen < 2 || argsLen > 3) {
+        return false;
+      }
+      break;
+    case "Fit":
+    case "FitB":
+      return argsLen === 0;
+    case "FitH":
+    case "FitBH":
+    case "FitV":
+    case "FitBV":
+      if (argsLen > 1) {
+        return false;
+      }
+      break;
+    case "FitR":
+      if (argsLen !== 4) {
+        return false;
+      }
+      allowNull = false;
+      break;
+    default:
+      return false;
+  }
+  for (const arg of args) {
+    if (typeof arg === "number" || (allowNull && arg === null)) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+// TOOD: Replace all occurrences of this function with `Math.clamp` once
+//       https://github.com/tc39/proposal-math-clamp/ is generally available.
+function MathClamp(v, min, max) {
+  return Math.min(Math.max(v, min), max);
+}
+
 // TODO: Remove this once `Uint8Array.prototype.toHex` is generally available.
 function toHexUtil(arr) {
   if (Uint8Array.prototype.toHex) {
@@ -1125,7 +1135,49 @@ if (
   };
 }
 
+// TODO: Remove this once the `javascript.options.experimental.math_sumprecise`
+//       preference is removed from Firefox.
+if (typeof Math.sumPrecise !== "function") {
+  // Note that this isn't a "proper" polyfill, but since we're only using it to
+  // replace `Array.prototype.reduce()` invocations it should be fine.
+  Math.sumPrecise = function (numbers) {
+    return numbers.reduce((a, b) => a + b, 0);
+  };
+}
+
+if (
+  typeof PDFJSDev !== "undefined" &&
+  !PDFJSDev.test("SKIP_BABEL") &&
+  typeof AbortSignal.any !== "function"
+) {
+  AbortSignal.any = function (iterable) {
+    const ac = new AbortController();
+    const { signal } = ac;
+
+    // Return immediately if any of the signals are already aborted.
+    for (const s of iterable) {
+      if (s.aborted) {
+        ac.abort(s.reason);
+        return signal;
+      }
+    }
+    // Register "abort" listeners for all signals.
+    for (const s of iterable) {
+      s.addEventListener(
+        "abort",
+        () => {
+          ac.abort(s.reason);
+        },
+        { signal } // Automatically remove the listener.
+      );
+    }
+
+    return signal;
+  };
+}
+
 export {
+  _isValidExplicitDest,
   AbortException,
   AnnotationActionEventType,
   AnnotationBorderStyleType,
@@ -1144,6 +1196,7 @@ export {
   bytesToString,
   createValidAbsoluteUrl,
   DocumentActionEventType,
+  DrawOPS,
   FeatureTest,
   FONT_IDENTITY_MATRIX,
   FormatError,
@@ -1160,8 +1213,7 @@ export {
   isNodeJS,
   LINE_DESCENT_FACTOR,
   LINE_FACTOR,
-  MAX_IMAGE_SIZE_TO_CACHE,
-  MissingPDFException,
+  MathClamp,
   normalizeUnicode,
   objectFromMap,
   objectSize,
@@ -1171,6 +1223,7 @@ export {
   PasswordResponses,
   PermissionFlag,
   RenderingIntentFlag,
+  ResponseException,
   setVerbosityLevel,
   shadow,
   string32,
@@ -1180,7 +1233,6 @@ export {
   TextRenderingMode,
   toBase64Util,
   toHexUtil,
-  UnexpectedResponseException,
   UnknownErrorException,
   unreachable,
   utf8StringToString,

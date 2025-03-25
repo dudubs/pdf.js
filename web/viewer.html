@@ -67,6 +67,7 @@ See https://github.com/adobe-type-tools/cmap-resources
 
           "display-cmap_reader_factory": "../src/display/cmap_reader_factory.js",
           "display-standard_fontdata_factory": "../src/display/standard_fontdata_factory.js",
+          "display-wasm_factory": "../src/display/wasm_factory.js",
           "display-fetch_stream": "../src/display/fetch_stream.js",
           "display-network": "../src/display/network.js",
           "display-node_stream": "../src/display/stubs.js",
@@ -90,6 +91,7 @@ See https://github.com/adobe-type-tools/cmap-resources
           "web-preferences": "./genericcom.js",
           "web-print_service": "./pdf_print_service.js",
           "web-secondary_toolbar": "./secondary_toolbar.js",
+          "web-signature_manager": "./signature_manager.js",
           "web-toolbar": "./toolbar.js"
         }
       }
@@ -112,14 +114,13 @@ See https://github.com/adobe-type-tools/cmap-resources
                 id="viewThumbnail"
                 class="toolbarButton toggled"
                 type="button"
-                title="Show Thumbnails"
                 tabindex="0"
                 data-l10n-id="pdfjs-thumbs-button"
                 role="radio"
                 aria-checked="true"
                 aria-controls="thumbnailView"
               >
-                <span data-l10n-id="pdfjs-thumbs-button-label">Thumbnails</span>
+                <span data-l10n-id="pdfjs-thumbs-button-label"></span>
               </button>
               <button
                 id="viewOutline"

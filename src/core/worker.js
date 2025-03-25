@@ -18,14 +18,10 @@ import {
   assert,
   getVerbosityLevel,
   info,
-  InvalidPDFException,
   isNodeJS,
-  MissingPDFException,
   PasswordException,
   setVerbosityLevel,
   stringToPDFString,
-  UnexpectedResponseException,
-  UnknownErrorException,
   VerbosityLevel,
   warn,
 } from "../shared/util.js";
@@ -36,10 +32,10 @@ import {
 } from "./core_utils.js";
 import { Dict, isDict, Ref, RefSetCache } from "./primitives.js";
 import { LocalPdfManager, NetworkPdfManager } from "./pdf_manager.js";
+import { MessageHandler, wrapReason } from "../shared/message_handler.js";
 import { AnnotationFactory } from "./annotation.js";
 import { clearGlobalCaches } from "./cleanup_helper.js";
 import { incrementalUpdate } from "./writer.js";
-import { MessageHandler } from "../shared/message_handler.js";
 import { PDFWorkerStream } from "./worker_stream.js";
 import { StructTreeRoot } from "./struct_tree.js";
 
@@ -177,6 +173,7 @@ class WorkerMessageHandler {
       if (isPureXfa) {
         const task = new WorkerTask("loadXfaFonts");
         startWorkerTask(task);
+
         await Promise.all([
           pdfManager
             .loadXfaFonts(handler, task)
@@ -346,18 +343,9 @@ class WorkerMessageHandler {
               finishWorkerTask(task);
               handler.send("DocException", ex);
             });
-        } else if (
-          ex instanceof InvalidPDFException ||
-          ex instanceof MissingPDFException ||
-          ex instanceof UnexpectedResponseException ||
-          ex instanceof UnknownErrorException
-        ) {
-          handler.send("DocException", ex);
         } else {
-          handler.send(
-            "DocException",
-            new UnknownErrorException(ex.message, ex.toString())
-          );
+          // Ensure that we always fallback to `UnknownErrorException`.
+          handler.send("DocException", wrapReason(ex));
         }
       }
 
@@ -462,9 +450,9 @@ class WorkerMessageHandler {
     });
 
     handler.on("GetPageJSActions", function ({ pageIndex }) {
-      return pdfManager.getPage(pageIndex).then(function (page) {
-        return pdfManager.ensure(page, "jsActions");
-      });
+      return pdfManager
+        .getPage(pageIndex)
+        .then(page => pdfManager.ensure(page, "jsActions"));
     });
 
     handler.on("GetOutline", function (data) {
@@ -491,9 +479,7 @@ class WorkerMessageHandler {
     });
 
     handler.on("GetData", function (data) {
-      return pdfManager.requestLoadedStream().then(function (stream) {
-        return stream.bytes;
-      });
+      return pdfManager.requestLoadedStream().then(stream => stream.bytes);
     });
 
     handler.on("GetAnnotations", function ({ pageIndex, intent }) {
@@ -590,6 +576,8 @@ class WorkerMessageHandler {
             newAnnotationPromises.push(
               pdfManager.getPage(pageIndex).then(page => {
                 const task = new WorkerTask(`Save (editor): page ${pageIndex}`);
+                startWorkerTask(task);
+
                 return page
                   .saveNewAnnotations(
                     handler,
@@ -637,6 +625,8 @@ class WorkerMessageHandler {
             promises.push(
               pdfManager.getPage(pageIndex).then(function (page) {
                 const task = new WorkerTask(`Save: page ${pageIndex}`);
+                startWorkerTask(task);
+
                 return page
                   .save(handler, task, annotationStorage, changes)
                   .finally(function () {
@@ -820,9 +810,9 @@ class WorkerMessageHandler {
     });
 
     handler.on("GetStructTree", function (data) {
-      return pdfManager.getPage(data.pageIndex).then(function (page) {
-        return pdfManager.ensure(page, "getStructTree");
-      });
+      return pdfManager
+        .getPage(data.pageIndex)
+        .then(page => pdfManager.ensure(page, "getStructTree"));
     });
 
     handler.on("FontFallback", function (data) {
@@ -880,9 +870,9 @@ class WorkerMessageHandler {
         return pdfManager.ensureDoc("startXRef");
       });
       handler.on("GetAnnotArray", function (data) {
-        return pdfManager.getPage(data.pageIndex).then(function (page) {
-          return page.annotations.map(a => a.toString());
-        });
+        return pdfManager
+          .getPage(data.pageIndex)
+          .then(page => page.annotations.map(a => a.toString()));
       });
     }
 

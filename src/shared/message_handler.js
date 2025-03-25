@@ -16,21 +16,19 @@
 import {
   AbortException,
   assert,
-  MissingPDFException,
+  InvalidPDFException,
   PasswordException,
-  UnexpectedResponseException,
+  ResponseException,
   UnknownErrorException,
   unreachable,
 } from "./util.js";
 
 const CallbackKind = {
-  UNKNOWN: 0,
   DATA: 1,
   ERROR: 2,
 };
 
 const StreamKind = {
-  UNKNOWN: 0,
   CANCEL: 1,
   CANCEL_COMPLETE: 2,
   CLOSE: 3,
@@ -43,31 +41,36 @@ const StreamKind = {
 
 function onFn() {}
 
-function wrapReason(reason) {
+function wrapReason(ex) {
   if (
-    !(
-      reason instanceof Error ||
-      (typeof reason === "object" && reason !== null)
-    )
+    ex instanceof AbortException ||
+    ex instanceof InvalidPDFException ||
+    ex instanceof PasswordException ||
+    ex instanceof ResponseException ||
+    ex instanceof UnknownErrorException
   ) {
+    // Avoid re-creating the exception when its type is already correct.
+    return ex;
+  }
+
+  if (!(ex instanceof Error || (typeof ex === "object" && ex !== null))) {
     unreachable(
       'wrapReason: Expected "reason" to be a (possibly cloned) Error.'
     );
   }
-  switch (reason.name) {
+  switch (ex.name) {
     case "AbortException":
-      return new AbortException(reason.message);
-    case "MissingPDFException":
-      return new MissingPDFException(reason.message);
+      return new AbortException(ex.message);
+    case "InvalidPDFException":
+      return new InvalidPDFException(ex.message);
     case "PasswordException":
-      return new PasswordException(reason.message, reason.code);
-    case "UnexpectedResponseException":
-      return new UnexpectedResponseException(reason.message, reason.status);
+      return new PasswordException(ex.message, ex.code);
+    case "ResponseException":
+      return new ResponseException(ex.message, ex.status, ex.missing);
     case "UnknownErrorException":
-      return new UnknownErrorException(reason.message, reason.details);
-    default:
-      return new UnknownErrorException(reason.message, reason.toString());
+      return new UnknownErrorException(ex.message, ex.details);
   }
+  return new UnknownErrorException(ex.message, ex.toString());
 }
 
 class MessageHandler {
@@ -532,4 +535,4 @@ class MessageHandler {
   }
 }
 
-export { MessageHandler };
+export { MessageHandler, wrapReason };

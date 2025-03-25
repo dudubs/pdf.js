@@ -636,7 +636,11 @@ class OperatorList {
     }
   }
 
-  addImageOps(fn, args, optionalContent) {
+  addImageOps(fn, args, optionalContent, hasMask = false) {
+    if (hasMask) {
+      this.addOp(OPS.save);
+      this.addOp(OPS.setGState, [[["SMask", false]]]);
+    }
     if (optionalContent !== undefined) {
       this.addOp(OPS.beginMarkedContentProps, ["OC", optionalContent]);
     }
@@ -645,6 +649,9 @@ class OperatorList {
 
     if (optionalContent !== undefined) {
       this.addOp(OPS.endMarkedContent, []);
+    }
+    if (hasMask) {
+      this.addOp(OPS.restore);
     }
   }
 
@@ -694,6 +701,12 @@ class OperatorList {
           const arg = argsArray[i][0]; // First parameter in imgData.
           if (!arg.cached && arg.data?.buffer instanceof ArrayBuffer) {
             transfers.push(arg.data.buffer);
+          }
+          break;
+        case OPS.constructPath:
+          const [, [data], minMax] = argsArray[i];
+          if (data) {
+            transfers.push(data.buffer, minMax.buffer);
           }
           break;
       }

@@ -16,7 +16,7 @@
 import { assert, stringToBytes, warn } from "../shared/util.js";
 import {
   createHeaders,
-  createResponseStatusError,
+  createResponseError,
   extractFilenameFromHeader,
   getResponseOrigin,
   validateRangeRequestCapabilities,
@@ -50,21 +50,6 @@ class NetworkManager {
 
     this.currXhrId = 0;
     this.pendingRequests = Object.create(null);
-  }
-
-  requestRange(begin, end, listeners) {
-    const args = {
-      begin,
-      end,
-    };
-    for (const prop in listeners) {
-      args[prop] = listeners[prop];
-    }
-    return this.request(args);
-  }
-
-  requestFull(listeners) {
-    return this.request(listeners);
   }
 
   request(args) {
@@ -248,14 +233,13 @@ class PDFNetworkStreamFullRequestReader {
   constructor(manager, source) {
     this._manager = manager;
 
-    const args = {
+    this._url = source.url;
+    this._fullRequestId = manager.request({
       onHeadersReceived: this._onHeadersReceived.bind(this),
       onDone: this._onDone.bind(this),
       onError: this._onError.bind(this),
       onProgress: this._onProgress.bind(this),
-    };
-    this._url = source.url;
-    this._fullRequestId = manager.requestFull(args);
+    });
     this._headersCapability = Promise.withResolvers();
     this._disableRange = source.disableRange || false;
     this._contentLength = source.length; // Optional
@@ -288,7 +272,8 @@ class PDFNetworkStreamFullRequestReader {
     const responseHeaders = new Headers(
       rawResponseHeaders
         ? rawResponseHeaders
-            .trim()
+            .trimStart()
+            .replace(/[^\S ]+$/, "") // Not `trimEnd`, to keep regular spaces.
             .split(/[\r\n]+/)
             .map(x => {
               const [key, ...val] = x.split(": ");
@@ -344,7 +329,7 @@ class PDFNetworkStreamFullRequestReader {
   }
 
   _onError(status) {
-    this._storedError = createResponseStatusError(status, this._url);
+    this._storedError = createResponseError(status, this._url);
     this._headersCapability.reject(this._storedError);
     for (const requestCapability of this._requests) {
       requestCapability.reject(this._storedError);
@@ -417,14 +402,15 @@ class PDFNetworkStreamRangeRequestReader {
   constructor(manager, begin, end) {
     this._manager = manager;
 
-    const args = {
+    this._url = manager.url;
+    this._requestId = manager.request({
+      begin,
+      end,
       onHeadersReceived: this._onHeadersReceived.bind(this),
       onDone: this._onDone.bind(this),
       onError: this._onError.bind(this),
       onProgress: this._onProgress.bind(this),
-    };
-    this._url = manager.url;
-    this._requestId = manager.requestRange(begin, end, args);
+    });
     this._requests = [];
     this._queuedChunk = null;
     this._done = false;
@@ -468,7 +454,7 @@ class PDFNetworkStreamRangeRequestReader {
   }
 
   _onError(status) {
-    this._storedError ??= createResponseStatusError(status, this._url);
+    this._storedError ??= createResponseError(status, this._url);
     for (const requestCapability of this._requests) {
       requestCapability.reject(this._storedError);
     }

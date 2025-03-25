@@ -96,6 +96,11 @@ const defaultOptions = {
         : null,
     kind: OptionKind.BROWSER,
   },
+  maxCanvasDim: {
+    /** @type {number} */
+    value: 32767,
+    kind: OptionKind.BROWSER + OptionKind.VIEWER,
+  },
   nimbusDataStr: {
     /** @type {string} */
     value: "",
@@ -195,6 +200,16 @@ const defaultOptions = {
     value: true,
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE + OptionKind.EVENT_DISPATCH,
   },
+  enableAutoLinking: {
+    /** @type {boolean} */
+    value: typeof PDFJSDev === "undefined" || PDFJSDev.test("MOZCENTRAL"),
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
+  enableDetailCanvas: {
+    /** @type {boolean} */
+    value: true,
+    kind: OptionKind.VIEWER,
+  },
   enableGuessAltText: {
     /** @type {boolean} */
     value: true,
@@ -226,6 +241,11 @@ const defaultOptions = {
   enableScripting: {
     /** @type {boolean} */
     value: typeof PDFJSDev === "undefined" || !PDFJSDev.test("CHROME"),
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
+  enableSignatureEditor: {
+    /** @type {boolean} */
+    value: typeof PDFJSDev === "undefined" || PDFJSDev.test("TESTING"),
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
   },
   enableUpdatedAddImage: {
@@ -319,6 +339,11 @@ const defaultOptions = {
     value: 1,
     kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
   },
+  viewerCssTheme: {
+    /** @type {number} */
+    value: typeof PDFJSDev !== "undefined" && PDFJSDev.test("CHROME") ? 2 : 0,
+    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
+  },
   viewOnLoad: {
     /** @type {boolean} */
     value: 0,
@@ -381,6 +406,17 @@ const defaultOptions = {
     value: false,
     kind: OptionKind.API,
   },
+  iccUrl: {
+    /** @type {string} */
+    value:
+      // eslint-disable-next-line no-nested-ternary
+      typeof PDFJSDev === "undefined"
+        ? "../external/iccs/"
+        : PDFJSDev.test("MOZCENTRAL")
+          ? "resource://pdf.js/web/iccs/"
+          : "../web/iccs/",
+    kind: OptionKind.API,
+  },
   isEvalSupported: {
     /** @type {boolean} */
     value: true,
@@ -431,6 +467,14 @@ const defaultOptions = {
     value: 1,
     kind: OptionKind.API,
   },
+  wasmUrl: {
+    /** @type {string} */
+    value:
+      typeof PDFJSDev !== "undefined" && PDFJSDev.test("MOZCENTRAL")
+        ? "resource://pdf.js/web/wasm/"
+        : "../web/wasm/",
+    kind: OptionKind.API,
+  },
 
   workerPort: {
     /** @type {Object} */
@@ -465,11 +509,6 @@ if (typeof PDFJSDev === "undefined" || !PDFJSDev.test("MOZCENTRAL")) {
         ? "../build/dev-sandbox/pdf.sandbox.mjs"
         : "../build/pdf.sandbox.mjs",
     kind: OptionKind.VIEWER,
-  };
-  defaultOptions.viewerCssTheme = {
-    /** @type {number} */
-    value: typeof PDFJSDev !== "undefined" && PDFJSDev.test("CHROME") ? 2 : 0,
-    kind: OptionKind.VIEWER + OptionKind.PREFERENCE,
   };
   defaultOptions.enableFakeMLManager = {
     /** @type {boolean} */

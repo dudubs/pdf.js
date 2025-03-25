@@ -128,7 +128,7 @@ function testSearch({
       }
     }
 
-    const totalMatches = matchesPerPage.reduce((a, b) => a + b);
+    const totalMatches = Math.sumPrecise(matchesPerPage);
 
     if (updateFindControlState) {
       eventBus.on(
@@ -1101,6 +1101,40 @@ describe("pdf_find_controller", function () {
       },
       pageMatches: [[0, 4, 15]],
       pageMatchesLength: [[query.length, query.length, query.length]],
+    });
+  });
+
+  it("performs a search with a dash between two digits", async () => {
+    const { eventBus, pdfFindController } = await initPdfFindController();
+
+    await testSearch({
+      eventBus,
+      pdfFindController,
+      state: {
+        query: "2008-02",
+      },
+      matchesPerPage: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      selectedMatch: {
+        pageIndex: 13,
+        matchIndex: 0,
+      },
+      pageMatches: [[], [], [], [], [], [], [], [], [], [], [], [], [], [314]],
+      pageMatchesLength: [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [7],
+      ],
     });
   });
 

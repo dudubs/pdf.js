@@ -1,4 +1,4 @@
-# PDF.js [![Build Status](https://github.com/mozilla/pdf.js/workflows/CI/badge.svg?branch=master)](https://github.com/mozilla/pdf.js/actions?query=workflow%3ACI+branch%3Amaster)
+# PDF.js [![CI](https://github.com/mozilla/pdf.js/actions/workflows/ci.yml/badge.svg?query=branch%3Amaster)](https://github.com/mozilla/pdf.js/actions/workflows/ci.yml?query=branch%3Amaster)
 
 [PDF.js](https://mozilla.github.io/pdf.js/) is a Portable Document Format (PDF) viewer that is built with HTML5.
 
@@ -90,7 +90,7 @@ be loaded by `pdf.js`. The PDF.js files are large and should be minified for pro
 ## Using PDF.js in a web application
 
 To use PDF.js in a web application you can choose to use a pre-built version of the library
-or to build it from source. We supply pre-built versions for usage with NPM and Bower under
+or to build it from source. We supply pre-built versions for usage with NPM under
 the `pdfjs-dist` name. For more information and examples please refer to the
 [wiki page](https://github.com/mozilla/pdf.js/wiki/Setup-pdf.js-in-a-website) on this subject.
 
