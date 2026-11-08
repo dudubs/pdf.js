@@ -21,7 +21,7 @@ import {
 } from "../../shared/util.js";
 import { DrawingEditor, DrawingOptions } from "./draw.js";
 import { InkDrawOutline, InkDrawOutliner } from "./drawers/inkdraw.js";
-import { eraseStrokes } from "./drawers/inkeraser.js";
+import { removeTouchedStrokes } from "./drawers/inkeraser.js";
 import { AnnotationEditor } from "./editor.js";
 import { BasicColorPicker } from "./color_picker.js";
 import { InkAnnotationElement } from "../annotation_layer.js";
@@ -358,10 +358,11 @@ class InkEditor extends DrawingEditor {
   // ---------------------------------------------------------------------
   // Eraser (local addition).
   //
-  // While the eraser is active, a pointer gesture on a page removes from the
-  // strokes of every ink editor of that page the parts lying under the
-  // pointer. Strokes are cut exactly (see drawers/inkeraser.js) and the
-  // whole gesture is a single undoable command.
+  // While the eraser is active, a pointer gesture on a page removes every
+  // stroke (one continuous line) of the ink editors of that page that the
+  // pointer touches. A touched stroke is removed entirely; the whole gesture
+  // is a single undoable command. (drawers/inkeraser.js also
+  // has eraseStrokes() to only cut the touched part of a stroke.)
   // ---------------------------------------------------------------------
 
   /** @inheritdoc */
@@ -532,7 +533,7 @@ class InkEditor extends DrawingEditor {
     const before = this._getStrokes();
     // The stroke has a width: erase everything the eraser visually touches.
     const halfWidth = this._drawingOptions["stroke-width"] / 2;
-    const after = eraseStrokes(before, cx, cy, r + halfWidth);
+    const after = removeTouchedStrokes(before, cx, cy, r + halfWidth);
     if (!after) {
       return;
     }

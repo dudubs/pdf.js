@@ -151,4 +151,38 @@ function eraseStrokes(strokes, cx, cy, r) {
   return out;
 }
 
-export { eraseStrokes, erasePolyline };
+/**
+ * Whether a polyline passes within r of (cx, cy).
+ */
+function polylineTouchesDisk(points, cx, cy, r) {
+  const r2 = r * r;
+  const len = points.length;
+  if (len === 2) {
+    return (points[0] - cx) ** 2 + (points[1] - cy) ** 2 < r2;
+  }
+  for (let i = 0; i + 3 < len; i += 2) {
+    const ax = points[i];
+    const ay = points[i + 1];
+    const dx = points[i + 2] - ax;
+    const dy = points[i + 3] - ay;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 === 0 ? 0 : Math.min(1, Math.max(0, ((cx - ax) * dx + (cy - ay) * dy) / l2));
+    if ((ax + t * dx - cx) ** 2 + (ay + t * dy - cy) ** 2 < r2) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Remove every whole stroke touched by the disk.
+ * @param {Array<Float32Array>} strokes
+ * @returns {Array<Float32Array> | null} The remaining strokes, or null if
+ *   no stroke is touched.
+ */
+function removeTouchedStrokes(strokes, cx, cy, r) {
+  const kept = strokes.filter(stroke => !polylineTouchesDisk(stroke, cx, cy, r));
+  return kept.length === strokes.length ? null : kept;
+}
+
+export { eraseStrokes, erasePolyline, removeTouchedStrokes };
