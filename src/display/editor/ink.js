@@ -560,12 +560,16 @@ class InkEditor extends DrawingEditor {
       if (!this.#removedByEraser) {
         this.#removedByEraser = true;
         this.remove();
+        this._uiManager.markModified();
       }
       return;
     }
     if (this.#removedByEraser) {
       this.#removedByEraser = false;
-      this.parent.addOrRebuild(this);
+      // The editor has been detached from its layer when it was removed.
+      (this.parent || this._uiManager.getLayer(this.pageIndex)).addOrRebuild(
+        this
+      );
     }
     const { rotation, thickness } = this._drawOutlines;
     const [pageX, pageY] = this.pageTranslation;
@@ -581,6 +585,7 @@ class InkEditor extends DrawingEditor {
       )
     );
     this._hasBeenErased = true;
+    this._uiManager.markModified();
   }
 
   /** @inheritdoc */

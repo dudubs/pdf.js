@@ -1437,6 +1437,13 @@ class AnnotationEditorUIManager {
    * Add an editor in the annotation storage.
    * @param {AnnotationEditor} editor
    */
+  /**
+   * Flag the document as modified (local addition, used by the ink eraser).
+   */
+  markModified() {
+    this.#annotationStorage?.markModified();
+  }
+
   addToAnnotationStorage(editor) {
     if (
       !editor.isEmpty() &&

@@ -148,6 +148,14 @@ class AnnotationStorage {
     return this.#storage.size;
   }
 
+  /**
+   * Flag the storage as modified, e.g. when an editor has been changed in
+   * place (local addition, used by the ink eraser).
+   */
+  markModified() {
+    this.#setModified();
+  }
+
   #setModified() {
     if (!this.#modified) {
       this.#modified = true;
