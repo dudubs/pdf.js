@@ -21,6 +21,7 @@ import {
 } from "../../shared/util.js";
 import { DrawingEditor, DrawingOptions } from "./draw.js";
 import { InkDrawOutline, InkDrawOutliner } from "./drawers/inkdraw.js";
+import { eraseStrokes } from "./drawers/inkeraser.js";
 import { AnnotationEditor } from "./editor.js";
 import { BasicColorPicker } from "./color_picker.js";
 import { InkAnnotationElement } from "../annotation_layer.js";
@@ -66,6 +67,15 @@ class InkEditor extends DrawingEditor {
 
   static _defaultDrawingOptions = null;
 
+  // Eraser state (local addition): `size` is the diameter in CSS pixels.
+  static #eraser = { active: false, size: 24 };
+
+  static #erasing = null;
+
+  #removedByEraser = false;
+
+  _hasBeenErased = false;
+
   constructor(params) {
     super({ ...params, name: "inkEditor" });
     this._willKeepAspectRatio = true;
@@ -85,6 +95,10 @@ class InkEditor extends DrawingEditor {
     const clone = this._defaultDrawingOptions.clone();
     clone.updateProperties(options);
     return clone;
+  }
+
+  static get supportsEraser() {
+    return true;
   }
 
   /** @inheritdoc */
@@ -218,6 +232,14 @@ class InkEditor extends DrawingEditor {
 
   /** @inheritdoc */
   static updateDefaultParams(type, value) {
+    if (type === AnnotationEditorParamsType.INK_ERASER) {
+      InkEditor.#eraser.active = !!value;
+      return;
+    }
+    if (type === AnnotationEditorParamsType.INK_ERASER_SIZE) {
+      InkEditor.#eraser.size = Math.max(2, +value || 0);
+      return;
+    }
     if (type === AnnotationEditorParamsType.INK_COLOR_AND_OPACITY) {
       super.updateDefaultParams(
         AnnotationEditorParamsType.INK_COLOR,
@@ -324,11 +346,240 @@ class InkEditor extends DrawingEditor {
       this.hasEditedComment ||
       this._hasBeenMoved ||
       this._hasBeenResized ||
+      this._hasBeenErased ||
       serialized.color.some((c, i) => c !== color[i]) ||
       serialized.thickness !== thickness ||
       serialized.opacity !== opacity ||
       serialized.pageIndex !== pageIndex
     );
+  }
+
+
+  // ---------------------------------------------------------------------
+  // Eraser (local addition).
+  //
+  // While the eraser is active, a pointer gesture on a page removes from the
+  // strokes of every ink editor of that page the parts lying under the
+  // pointer. Strokes are cut exactly (see drawers/inkeraser.js) and the
+  // whole gesture is a single undoable command.
+  // ---------------------------------------------------------------------
+
+  /** @inheritdoc */
+  static startDrawing(parent, uiManager, isLTR, event) {
+    if (!InkEditor.#eraser.active) {
+      super.startDrawing(parent, uiManager, isLTR, event);
+      return;
+    }
+    InkEditor.#startErasing(parent, uiManager, event);
+  }
+
+  /** @inheritdoc */
+  static endDrawing(isAborted) {
+    if (InkEditor.#erasing) {
+      InkEditor.#stopErasing();
+      return null;
+    }
+    return super.endDrawing(isAborted);
+  }
+
+  static #startErasing(parent, uiManager, event) {
+    if (InkEditor.#erasing) {
+      // A second pointer: ignore it.
+      return;
+    }
+    const { pointerId } = event;
+    const ac = new AbortController();
+    const signal = parent.combinedSignal(ac);
+    const state = (InkEditor.#erasing = {
+      parent,
+      uiManager,
+      ac,
+      pointerId,
+      last: null,
+      touched: new Map(),
+    });
+
+    const onEnd = e => {
+      if (e.pointerId === pointerId) {
+        InkEditor.#stopErasing();
+      }
+    };
+    window.addEventListener("pointerup", onEnd, { signal });
+    window.addEventListener("pointercancel", onEnd, { signal });
+    parent.div.addEventListener(
+      "pointermove",
+      e => {
+        if (e.pointerId === pointerId) {
+          InkEditor.#eraseTo(state, e.clientX, e.clientY);
+          e.preventDefault();
+        }
+      },
+      { signal }
+    );
+    uiManager._editorUndoBar?.hide();
+    InkEditor.#eraseTo(state, event.clientX, event.clientY);
+  }
+
+  static #stopErasing() {
+    const state = InkEditor.#erasing;
+    if (!state) {
+      return;
+    }
+    InkEditor.#erasing = null;
+    state.ac.abort();
+
+    if (state.touched.size === 0) {
+      return;
+    }
+    const entries = [];
+    for (const [editor, before] of state.touched) {
+      entries.push({ editor, before, after: editor._getStrokes() });
+    }
+    state.parent.addCommands({
+      cmd: () => {
+        for (const { editor, after } of entries) {
+          editor._applyStrokes(after);
+        }
+      },
+      undo: () => {
+        for (const { editor, before } of entries) {
+          editor._applyStrokes(before);
+        }
+      },
+      mustExec: false,
+      type: AnnotationEditorParamsType.INK_ERASER,
+    });
+  }
+
+  static #eraseTo(state, clientX, clientY) {
+    const { parent, last } = state;
+    const rect = parent.div.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      return;
+    }
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    state.last = [x, y];
+
+    const radius = InkEditor.#eraser.size / 2;
+    // Walk along the pointer path so that fast moves don't leave holes.
+    let steps = 1;
+    if (last) {
+      steps = Math.max(1, Math.ceil(Math.hypot(x - last[0], y - last[1]) / (radius / 2)));
+    }
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const px = last ? last[0] + (x - last[0]) * t : x;
+      const py = last ? last[1] + (y - last[1]) * t : y;
+      InkEditor.#eraseAt(state, px / rect.width, py / rect.height, radius, rect);
+    }
+  }
+
+  static #eraseAt(state, nx, ny, radius, rect) {
+    const { parent, uiManager, touched } = state;
+    const {
+      viewport: {
+        rotation,
+        rawDims: { pageX, pageY, pageWidth, pageHeight },
+      },
+    } = parent;
+
+    // Same mapping as InkDrawOutline.serialize (page rotation aware).
+    let cx, cy;
+    switch (rotation) {
+      case 90:
+        cx = pageX + ny * pageWidth;
+        cy = pageY + nx * pageHeight;
+        break;
+      case 180:
+        cx = pageX + (1 - nx) * pageWidth;
+        cy = pageY + ny * pageHeight;
+        break;
+      case 270:
+        cx = pageX + (1 - ny) * pageWidth;
+        cy = pageY + (1 - nx) * pageHeight;
+        break;
+      default:
+        cx = pageX + nx * pageWidth;
+        cy = pageY + (1 - ny) * pageHeight;
+    }
+    const r = radius / parent.scale;
+    const mx = radius / rect.width;
+    const my = radius / rect.height;
+
+    for (const editor of uiManager.getEditors(parent.pageIndex)) {
+      if (
+        !(editor instanceof InkEditor) ||
+        editor.parent !== parent ||
+        editor.#removedByEraser
+      ) {
+        continue;
+      }
+      // Cheap rejection using the editor box (parent coordinates).
+      if (
+        nx < editor.x - mx ||
+        nx > editor.x + editor.width + mx ||
+        ny < editor.y - my ||
+        ny > editor.y + editor.height + my
+      ) {
+        continue;
+      }
+      editor._erase(cx, cy, r, touched);
+    }
+  }
+
+  _erase(cx, cy, r, touched) {
+    const before = this._getStrokes();
+    // The stroke has a width: erase everything the eraser visually touches.
+    const halfWidth = this._drawingOptions["stroke-width"] / 2;
+    const after = eraseStrokes(before, cx, cy, r + halfWidth);
+    if (!after) {
+      return;
+    }
+    if (!touched.has(this)) {
+      touched.set(this, before);
+    }
+    this._applyStrokes(after);
+  }
+
+  /**
+   * @returns {Array<Float32Array>} The strokes as flat polylines in PDF page
+   *   coordinates.
+   */
+  _getStrokes() {
+    return this.#removedByEraser ? [] : this.serializeDraw(false).points;
+  }
+
+  /**
+   * Replace the strokes of this editor (no undo command is created).
+   * @param {Array<Float32Array>} strokes - Empty to remove the editor.
+   */
+  _applyStrokes(strokes) {
+    if (strokes.length === 0) {
+      if (!this.#removedByEraser) {
+        this.#removedByEraser = true;
+        this.remove();
+      }
+      return;
+    }
+    if (this.#removedByEraser) {
+      this.#removedByEraser = false;
+      this.parent.addOrRebuild(this);
+    }
+    const { rotation, thickness } = this._drawOutlines;
+    const [pageX, pageY] = this.pageTranslation;
+    const [pageWidth, pageHeight] = this.pageDimensions;
+    this._replaceOutlines(
+      InkDrawOutline.deserialize(
+        pageX,
+        pageY,
+        pageWidth,
+        pageHeight,
+        InkEditor._INNER_MARGIN,
+        { paths: { points: strokes }, rotation, thickness }
+      )
+    );
+    this._hasBeenErased = true;
   }
 
   /** @inheritdoc */

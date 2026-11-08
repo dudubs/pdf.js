@@ -458,6 +458,24 @@ class DrawingEditor extends AnnotationEditor {
     }
   }
 
+  get _drawOutlines() {
+    return this.#drawOutlines;
+  }
+
+  /**
+   * Replace the outlines of this editor by some new ones (used by the ink
+   * eraser). The editor, its position and its size are updated accordingly.
+   * @param {Outline} drawOutlines
+   */
+  _replaceOutlines(drawOutlines) {
+    this.#cleanDrawLayer();
+    this.#drawOutlines = drawOutlines;
+    this.#addToDrawLayer();
+    this.#updateBbox(drawOutlines.box);
+    this.onScaleChanging();
+    this.rotate();
+  }
+
   #cleanDrawLayer() {
     if (this._drawId === null || !this.parent) {
       return;

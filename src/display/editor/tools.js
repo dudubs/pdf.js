@@ -2188,6 +2188,21 @@ class AnnotationEditorUIManager {
       case AnnotationEditorParamsType.CREATE:
         this.currentLayer.addNewEditor(value);
         return;
+      case AnnotationEditorParamsType.INK_ERASER:
+      case AnnotationEditorParamsType.INK_ERASER_SIZE:
+        // Local addition: the eraser is a global tool, whatever the selection.
+        if (type === AnnotationEditorParamsType.INK_ERASER) {
+          // Commit the strokes being drawn before switching tool.
+          this.commitOrRemove();
+          this.currentLayer?.endDrawingSession(/* isAborted = */ false);
+          this.#viewer.classList.toggle("inkEraser", !!value);
+        }
+        for (const editorType of this.#editorTypes) {
+          if (editorType.supportsEraser) {
+            editorType.updateDefaultParams(type, value);
+          }
+        }
+        return;
       case AnnotationEditorParamsType.HIGHLIGHT_SHOW_ALL:
         this._eventBus.dispatch("reporttelemetry", {
           source: this,

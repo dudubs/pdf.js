@@ -323,6 +323,14 @@ class InkDrawOutline extends Outline {
     return this.#thickness;
   }
 
+  /**
+   * The rotation of the page when the strokes have been drawn: the strokes
+   * are expressed in this frame.
+   */
+  get rotation() {
+    return this.#rotation;
+  }
+
   setLastElement(element) {
     this.#lines.push(element);
     return {
